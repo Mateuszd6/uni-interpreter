@@ -11,7 +11,7 @@ EDiv.    Exp2  ::= Exp2 "/" Exp3 ;
 EPow.    Exp3  ::= Exp3 "^" Exp4 ;
 
 EEq.     Exp4  ::= Exp4 "==" Exp5 ;
-ENeq.    Exp4  ::= Exp4 "!-" Exp5 ;
+ENeq.    Exp4  ::= Exp4 "!=" Exp5 ;
 EGeq.    Exp4  ::= Exp4 ">=" Exp5 ;
 ELeq.    Exp4  ::= Exp4 "<=" Exp5 ;
 EGt.     Exp4  ::= Exp4 ">"  Exp5 ;
@@ -23,20 +23,28 @@ EXor.    Exp5  ::= Exp5 "^^" Exp6 ;
 
 EFnCall. Exp6  ::= Ident InvokeExprList ;
 
-EVar.    Exp7  ::= Ident ;
-EString. Exp7  ::= String ;
-EInt.    Exp7  ::= Integer ;
-EBool.   Exp7  ::= Boolean ;
+-- 'Lambda' funciton. Sicne we don't have a higher order funcs, all we can do
+-- with it, is to immidietly invoke it (IIFE).
+EIife.   Exp6  ::= FunDecl InvokeExprList ;
 
-_.       Exp   ::= Exp1 ;
-_.       Exp1  ::= Exp2 ;
-_.       Exp2  ::= Exp3 ;
-_.       Exp3  ::= Exp4 ;
-_.       Exp4  ::= Exp5 ;
-_.       Exp5  ::= Exp6 ;
-_.       Exp6  ::= Exp7 ;
-_.       Exp7  ::= "(" Exp ")" ;
--- coercions Exp 3 ; -- TODO: Test if this works.
+ETuple.  Exp7  ::= "[" [Exp] "]" ;
+
+EVar.    Exp8  ::= Ident ;
+EString. Exp8  ::= String ;
+EInt.    Exp8  ::= Integer ;
+EBool.   Exp8  ::= Boolean ;
+
+-- NOTE: Equivalent to: (TODO: Shorten when sure)
+-- _.       Exp   ::= Exp1 ;
+-- _.       Exp1  ::= Exp2 ;
+-- _.       Exp2  ::= Exp3 ;
+-- _.       Exp3  ::= Exp4 ;
+-- _.       Exp4  ::= Exp5 ;
+-- _.       Exp5  ::= Exp6 ;
+-- _.       Exp6  ::= Exp7 ;
+-- _.       Exp7  ::= Exp8 ;
+-- _.       Exp8  ::= "(" Exp ")" ;
+coercions Exp 8 ;
 
 -- Split into Stm1 and Stm to avoid confilits around if - else, which happen
 -- becase we are not using endif or anything like this.
@@ -44,70 +52,79 @@ _.       Exp7  ::= "(" Exp ")" ;
 SIf.     Stm  ::= IfStm ElseStm ; -- ElseStm can be empty to allow single if.
 SExp.    Stm1 ::= Exp ";" ;
 SDecl.   Stm1 ::= Decl ";" ;
-SFDecl.  Stm1 ::= NameDecl FunDecl ; -- Local function declaration
--- Lambda funciton. Sicne we don't have a higher order funcs, all we can do with
--- it, is to immidietly invoke it (IIFE).
-SLbda.   Stm1 ::= FunDecl InvokeExprList ";" ;
-SAssign. Stm1 ::= Ident "=" Exp ";"; -- TODO: Should't this be Exp?
+SFDecl.  Stm1 ::= Ident "::" FunDecl ; -- Local function declaration
+SSDecl.  Stm1 ::= Ident "::" "struct" "{" [DeclSuperBasic] "}" ;
+SAssign. Stm1 ::= AssignVar "=" Exp ";";
 SReturn. Stm1 ::= "return" Exp ";" ; -- TODO: Return in void functions won't work?
-SForInt. Stm1 ::= "for" "(" NameDecl Exp ".." Exp ")" Stm1 ;
--- SForRange.   Stm1 ::= "for" "(" NameDecl Exp ")" Stm1 ; -- TODO: DO we support it?
--- TODO: for it : foo
+SForInt. Stm1 ::= "for" "(" Ident ":" Exp ".." Exp ")" Stm1 ;
 SWhile.  Stm1 ::= "while" "(" Exp ")" Stm1 ;
 SBlock.  Stm1 ::= FunBind "{" [Stm] "}" ;
 _.       Stm  ::= Stm1 ;
 
--- Common syntax for declaring the variable, could be followed with = or type or
--- both.
-NDDefault.   NameDecl ::= Ident ":" ; -- TODO: To we really need it?
-
 -- TODO: Split fun definition with declaration, for clarity
-FDDefault.   FunDecl ::= DeclList "->" FuncRetV FunBind "{" [Stm] "}" ;
-FDBindEmpty. FunBind ::= ;
-FDBindSpec.  FunBind ::= "bind" InvokeExprList ; -- bind () is same as not specifying bind at all
+FDDefault.  FunDecl ::= DeclList "->" FuncRetV FunBind "{" [Stm] "}" ;
+FDBindEmpty.FunBind ::= ;
+FDBindSpec. FunBind ::= "bind" NameList ; -- bind () is same as not specifying bind at all
 
-DDeclUninit. Decl  ::= DeclBasic ; -- Declare do not assign value.
-DDeclAssign. Decl  ::= DeclBasic "=" Exp ; -- Decalre + assign, type is explicit.
-DDeclDeduce. Decl  ::= NameDecl "=" Exp ; -- Decalre + assign, type is deduced.
+DDeclUninit.   Decl ::= AssignVar ":" Type ; -- Declare do not assign value.
+DDeclAssign.   Decl ::= AssignVar ":" Type "=" Exp ; -- Decalre + assign, type is explicit.
+DDeclDeduce.   Decl ::= AssignVar ":" "=" Exp ; -- Decalre + assign, type is deduced.
 
-DDeclBasic. DeclBasic ::= NameDecl Type;
+-- TODO: 'tuple' here is necesarry to avoid ugly conflicts?
+AVSingle. AssignVar ::= Ident ;
+AVTuple.  AssignVar ::= "tuple" "[" [AssignVar] "]" ;
+
+AVSBSingle. DeclSuperBasic ::= Ident ":" Type ; -- TODO: This does not stay!
 
 IIf.        IfStm   ::= "if" "(" Exp ")" Stm1 ;
 IElse.      ElseStm ::= "else" Stm ;
 IElseEmpty. ElseStm ::= ;
 
-IELDefault. InvokeExprList ::= "(" [ArgExp] ")" ;
+-- Passing bing() to function is allowed, it basically means that the function
+-- is pure.
+INameListDefault. NameList ::= "(" [Ident] ")" ;
+INameListEmpty.   NameList ::= "(" ")" ;
+
+IELDefault. InvokeExprList ::= "(" [Exp] ")" ;
 IELEmpty.   InvokeExprList ::= "(" ")" ;
 
--- Function parameters declaration, user is allowed to skip them, if func does
--- not take any.
-DLDefault.  DeclList ::= "(" [DeclBasic] ")" ;
-DLEmpty.    DeclList ::= "(" ")" ;
+DDeclBasic. DeclBasic      ::= AssignVar ":" Type; -- TODO: Can this go?
+DLDefault.  DeclList       ::= "(" [DeclBasic] ")" ;
+DLEmpty.    DeclList       ::= "(" ")" ;
 
 -- Function return type, user is allowed to skip it, if func does not return
 -- anything ('void' return type).
 FRDefault.  FuncRetV ::= Type ;
 FREmpty.    FuncRetV ::= ;
 
-(:[]).   [DeclBasic] ::= DeclBasic ;
-(:).     [DeclBasic] ::= DeclBasic "," [DeclBasic] ;
-
--- This is a list of _expressions_. It accepts more than ArgVar.
--- Used in function call.
--- TODO: CONFLICTS!
-(:[]).   [ArgExp] ::= ArgExp ;
-(:).     [ArgExp] ::= ArgExp "," [ArgExp] ;
-EVExp.     ArgExp ::= Exp ;
-
 -- Type name: either built-in or user-defined struct.
 TInt.     Type    ::= "int" ;
 TBool.    Type    ::= "bool" ;
 TString.  Type    ::= "string" ;
+TTuple.   Type    ::= "[" [Type] "]" ;
 TUserDef. Type    ::= Ident ;
+
+BTrue.   Boolean  ::= "true" ;
+BFalse.  Boolean  ::= "false" ;
+
+(:[]).   [DeclBasic] ::= DeclBasic ;
+(:).     [DeclBasic] ::= DeclBasic "," [DeclBasic] ;
+
+(:[]).   [Exp] ::= Exp ;
+(:).     [Exp] ::= Exp "," [Exp] ;
+
+(:[]).   [Ident] ::= Ident ;
+(:).     [Ident] ::= Ident "," [Ident] ;
+
+(:[]).   [DeclSuperBasic] ::= DeclSuperBasic ";" ;
+(:).     [DeclSuperBasic] ::= DeclSuperBasic ";" [DeclSuperBasic] ;
+
+(:[]).   [AssignVar] ::= AssignVar ;
+(:).     [AssignVar] ::= AssignVar "," [AssignVar] ;
+
+(:[]).   [Type] ::= Type ;
+(:).     [Type] ::= Type "," [Type] ;
 
 comment "//" ; -- Regular C style comments both block and single-line.
 comment "/*" "*/" ; -- Block comments can't be nested (like in C).
 comment "#" ; -- To allow scripting
-
-BTrue.   Boolean  ::= "true" ;
-BFalse.  Boolean  ::= "false" ;
