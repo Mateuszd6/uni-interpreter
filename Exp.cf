@@ -11,7 +11,7 @@ EDiv.    Exp2  ::= Exp2 "/" Exp3 ;
 EPow.    Exp3  ::= Exp3 "^" Exp4 ;
 
 EEq.     Exp4  ::= Exp4 "==" Exp5 ;
-ENeq.    Exp4  ::= Exp4 NeqOp Exp5 ;
+ENeq.    Exp4  ::= Exp4 "!-" Exp5 ;
 EGeq.    Exp4  ::= Exp4 ">=" Exp5 ;
 ELeq.    Exp4  ::= Exp4 "<=" Exp5 ;
 EGt.     Exp4  ::= Exp4 ">"  Exp5 ;
@@ -21,10 +21,9 @@ ELor.    Exp5  ::= Exp5 "||" Exp6 ;
 ELand.   Exp5  ::= Exp5 "&&" Exp6 ;
 EXor.    Exp5  ::= Exp5 "^^" Exp6 ;
 
-EFnCall. Exp6  ::= VName "(" ")" ;
--- EFnCallA.Exp6  ::= VName "(" [ArgExp] ")" ;
+EFnCall. Exp6  ::= Ident InvokeExprList ;
 
-EVar.    Exp7  ::= VName ;
+EVar.    Exp7  ::= Ident ;
 EString. Exp7  ::= String ;
 EInt.    Exp7  ::= Integer ;
 EBool.   Exp7  ::= Boolean ;
@@ -37,57 +36,58 @@ _.       Exp4  ::= Exp5 ;
 _.       Exp5  ::= Exp6 ;
 _.       Exp6  ::= Exp7 ;
 _.       Exp7  ::= "(" Exp ")" ;
+-- coercions Exp 3 ; -- TODO: Test if this works.
 
--- Split into Stm1 and Stm to avoid confilits with if - else, which happen
+-- Split into Stm1 and Stm to avoid confilits around if - else, which happen
 -- becase we are not using endif or anything like this.
-SIf.         Stm ::= "if" "(" Exp ")" Stm1 ;
-SIfElse.     Stm ::= "if" "(" Exp ")" Stm1 "else" Stm ;
-SExp.        Stm1 ::= Exp ";" ;
-SDecl.       Stm1 ::= Decl ";" ;
-SFDecl.      Stm1 ::= FunDecl ";" ; -- Local function declaration
-SAssign.     Stm1 ::= VName "=" Exp ";"; -- TODO: Should't this be Exp?
-SReturn.     Stm1 ::= "return" Exp ";" ; -- TODO: Return in void functions won't work?
-SForInt.     Stm1 ::= "for" "(" VarDec Exp ".." Exp ")" Stm1 ;
+-- TODO: We cannot do for () if () {}
+SIf.     Stm  ::= IfStm ElseStm ; -- ElseStm can be empty to allow single if.
+SExp.    Stm1 ::= Exp ";" ;
+SDecl.   Stm1 ::= Decl ";" ;
+SFDecl.  Stm1 ::= NameDecl FunDecl ; -- Local function declaration
+-- Lambda funciton. Sicne we don't have a higher order funcs, all we can do with
+-- it, is to immidietly invoke it (IIFE).
+SLbda.   Stm1 ::= FunDecl InvokeExprList ";" ;
+SAssign. Stm1 ::= Ident "=" Exp ";"; -- TODO: Should't this be Exp?
+SReturn. Stm1 ::= "return" Exp ";" ; -- TODO: Return in void functions won't work?
+SForInt. Stm1 ::= "for" "(" NameDecl Exp ".." Exp ")" Stm1 ;
+-- SForRange.   Stm1 ::= "for" "(" NameDecl Exp ")" Stm1 ; -- TODO: DO we support it?
 -- TODO: for it : foo
-SWhile.      Stm1 ::= "while" "(" Exp ")" Stm1 ;
-SBlock.      Stm1 ::= "{" [Stm] "}" ;
+SWhile.  Stm1 ::= "while" "(" Exp ")" Stm1 ;
+SBlock.  Stm1 ::= FunBind "{" [Stm] "}" ;
+_.       Stm  ::= Stm1 ;
 
-_.           Stm   ::= Stm1 ;
-
--- Common syntax for declaring the variable, could be followed with = or type or both.
-VDDefault.   VarDec ::= VName ":" ; -- TODO: Rename as it also applies to funcs?
+-- Common syntax for declaring the variable, could be followed with = or type or
+-- both.
+NDDefault.   NameDecl ::= Ident ":" ; -- TODO: To we really need it?
 
 -- TODO: Split fun definition with declaration, for clarity
-FDDefault.   FunDecl ::= VarDec DeclList "->" FuncRetV FunBind "{" [Stm] "}" ;
+FDDefault.   FunDecl ::= DeclList "->" FuncRetV FunBind "{" [Stm] "}" ;
 FDBindEmpty. FunBind ::= ;
--- FDBindSpec.  FunBind ::= "bind" "(" [ArgExp] ")" ;
+FDBindSpec.  FunBind ::= "bind" InvokeExprList ; -- bind () is same as not specifying bind at all
 
 DDeclUninit. Decl  ::= DeclBasic ; -- Declare do not assign value.
 DDeclAssign. Decl  ::= DeclBasic "=" Exp ; -- Decalre + assign, type is explicit.
-DDeclDeduce. Decl  ::= VarDec "=" Exp ; -- Decalre + assign, type is deduced.
+DDeclDeduce. Decl  ::= NameDecl "=" Exp ; -- Decalre + assign, type is deduced.
 
-DDeclBasic.  DeclBasic ::= VarDec Type;
+DDeclBasic. DeclBasic ::= NameDecl Type;
 
--- Auxiliary rules for if statemetns:
--- IIf.         IfStm     ::= "if" "(" Exp ")" Stm ;
--- IIfElse.     IfElseStm ::= IfStm "else" Stm ;
+IIf.        IfStm   ::= "if" "(" Exp ")" Stm1 ;
+IElse.      ElseStm ::= "else" Stm ;
+IElseEmpty. ElseStm ::= ;
 
-IIf.         IfStm     ::= "if" "(" Exp ")" Stm1 ;
-IIfElse.     IfElseStm ::= "else" Stm ;
-IIfElseEnd.  IfElseStm ::=  ;
+IELDefault. InvokeExprList ::= "(" [ArgExp] ")" ;
+IELEmpty.   InvokeExprList ::= "(" ")" ;
 
--- Either sepcify type or deduce it. -- TODO: This does not work.
--- TSExplicit.  TypeSpec ::= Type ;
--- TSDeduce.    Typespec ::= ;
-
--- Function parameters declaration, user is allowed to skip them, if func does not take any.
-TODO_1.     DeclList ::= "(" [DeclBasic] ")" ;
-TODO_2.     DeclList ::= ;
+-- Function parameters declaration, user is allowed to skip them, if func does
+-- not take any.
+DLDefault.  DeclList ::= "(" [DeclBasic] ")" ;
+DLEmpty.    DeclList ::= "(" ")" ;
 
 -- Function return type, user is allowed to skip it, if func does not return
 -- anything ('void' return type).
-TODO_3.     FuncRetV ::= Type ;
-TODO_4.     FuncRetV ::= ;
+FRDefault.  FuncRetV ::= Type ;
+FREmpty.    FuncRetV ::= ;
 
 (:[]).   [DeclBasic] ::= DeclBasic ;
 (:).     [DeclBasic] ::= DeclBasic "," [DeclBasic] ;
@@ -95,12 +95,9 @@ TODO_4.     FuncRetV ::= ;
 -- This is a list of _expressions_. It accepts more than ArgVar.
 -- Used in function call.
 -- TODO: CONFLICTS!
--- (:[]).   [ArgExp] ::= ArgExp ;
--- (:).     [ArgExp] ::= ArgExp "," [ArgExp] ;
--- EVExp.     ArgExp ::= Exp ;
-
--- Variable name
-VLit.     VName   ::= Ident; -- TODO: Or possibly not really necesarry? Rename because it also applies to funcs?
+(:[]).   [ArgExp] ::= ArgExp ;
+(:).     [ArgExp] ::= ArgExp "," [ArgExp] ;
+EVExp.     ArgExp ::= Exp ;
 
 -- Type name: either built-in or user-defined struct.
 TInt.     Type    ::= "int" ;
@@ -112,10 +109,5 @@ comment "//" ; -- Regular C style comments both block and single-line.
 comment "/*" "*/" ; -- Block comments can't be nested (like in C).
 comment "#" ; -- To allow scripting
 
--- Typical lowercase boolean constants:
 BTrue.   Boolean  ::= "true" ;
 BFalse.  Boolean  ::= "false" ;
-
--- Both versions of 'not equal' operator are accepted:
-NeqSt1.  NeqOp    ::= "!=" ;
-NeqSt2.  NeqOp    ::= "<>" ;
