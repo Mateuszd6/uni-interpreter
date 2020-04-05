@@ -1,0 +1,121 @@
+-- TODO: Investigate
+[].       [Stm]    ::= ; -- TODO: move this to statemetns, place more logically.
+(:).      [Stm]    ::= Stm [Stm] ;
+
+EPlus.   Exp   ::= Exp  "+" Exp2 ;
+EMinus.  Exp   ::= Exp  "-" Exp2 ;
+
+ETimes.  Exp2  ::= Exp2 "*" Exp3 ;
+EDiv.    Exp2  ::= Exp2 "/" Exp3 ;
+
+EPow.    Exp3  ::= Exp3 "^" Exp4 ;
+
+EEq.     Exp4  ::= Exp4 "==" Exp5 ;
+ENeq.    Exp4  ::= Exp4 NeqOp Exp5 ;
+EGeq.    Exp4  ::= Exp4 ">=" Exp5 ;
+ELeq.    Exp4  ::= Exp4 "<=" Exp5 ;
+EGt.     Exp4  ::= Exp4 ">"  Exp5 ;
+ELt.     Exp4  ::= Exp4 "<"  Exp5 ;
+
+ELor.    Exp5  ::= Exp5 "||" Exp6 ;
+ELand.   Exp5  ::= Exp5 "&&" Exp6 ;
+EXor.    Exp5  ::= Exp5 "^^" Exp6 ;
+
+EFnCall. Exp6  ::= VName "(" ")" ;
+-- EFnCallA.Exp6  ::= VName "(" [ArgExp] ")" ;
+
+EVar.    Exp7  ::= VName ;
+EString. Exp7  ::= String ;
+EInt.    Exp7  ::= Integer ;
+EBool.   Exp7  ::= Boolean ;
+
+_.       Exp   ::= Exp1 ;
+_.       Exp1  ::= Exp2 ;
+_.       Exp2  ::= Exp3 ;
+_.       Exp3  ::= Exp4 ;
+_.       Exp4  ::= Exp5 ;
+_.       Exp5  ::= Exp6 ;
+_.       Exp6  ::= Exp7 ;
+_.       Exp7  ::= "(" Exp ")" ;
+
+-- Split into Stm1 and Stm to avoid confilits with if - else, which happen
+-- becase we are not using endif or anything like this.
+SIf.         Stm ::= "if" "(" Exp ")" Stm1 ;
+SIfElse.     Stm ::= "if" "(" Exp ")" Stm1 "else" Stm ;
+SExp.        Stm1 ::= Exp ";" ;
+SDecl.       Stm1 ::= Decl ";" ;
+SFDecl.      Stm1 ::= FunDecl ";" ; -- Local function declaration
+SAssign.     Stm1 ::= VName "=" Exp ";"; -- TODO: Should't this be Exp?
+SReturn.     Stm1 ::= "return" Exp ";" ; -- TODO: Return in void functions won't work?
+SForInt.     Stm1 ::= "for" "(" VarDec Exp ".." Exp ")" Stm1 ;
+-- TODO: for it : foo
+SWhile.      Stm1 ::= "while" "(" Exp ")" Stm1 ;
+SBlock.      Stm1 ::= "{" [Stm] "}" ;
+
+_.           Stm   ::= Stm1 ;
+
+-- Common syntax for declaring the variable, could be followed with = or type or both.
+VDDefault.   VarDec ::= VName ":" ; -- TODO: Rename as it also applies to funcs?
+
+-- TODO: Split fun definition with declaration, for clarity
+FDDefault.   FunDecl ::= VarDec DeclList "->" FuncRetV FunBind "{" [Stm] "}" ;
+FDBindEmpty. FunBind ::= ;
+-- FDBindSpec.  FunBind ::= "bind" "(" [ArgExp] ")" ;
+
+DDeclUninit. Decl  ::= DeclBasic ; -- Declare do not assign value.
+DDeclAssign. Decl  ::= DeclBasic "=" Exp ; -- Decalre + assign, type is explicit.
+DDeclDeduce. Decl  ::= VarDec "=" Exp ; -- Decalre + assign, type is deduced.
+
+DDeclBasic.  DeclBasic ::= VarDec Type;
+
+-- Auxiliary rules for if statemetns:
+-- IIf.         IfStm     ::= "if" "(" Exp ")" Stm ;
+-- IIfElse.     IfElseStm ::= IfStm "else" Stm ;
+
+IIf.         IfStm     ::= "if" "(" Exp ")" Stm1 ;
+IIfElse.     IfElseStm ::= "else" Stm ;
+IIfElseEnd.  IfElseStm ::=  ;
+
+-- Either sepcify type or deduce it. -- TODO: This does not work.
+-- TSExplicit.  TypeSpec ::= Type ;
+-- TSDeduce.    Typespec ::= ;
+
+-- Function parameters declaration, user is allowed to skip them, if func does not take any.
+TODO_1.     DeclList ::= "(" [DeclBasic] ")" ;
+TODO_2.     DeclList ::= ;
+
+-- Function return type, user is allowed to skip it, if func does not return
+-- anything ('void' return type).
+TODO_3.     FuncRetV ::= Type ;
+TODO_4.     FuncRetV ::= ;
+
+(:[]).   [DeclBasic] ::= DeclBasic ;
+(:).     [DeclBasic] ::= DeclBasic "," [DeclBasic] ;
+
+-- This is a list of _expressions_. It accepts more than ArgVar.
+-- Used in function call.
+-- TODO: CONFLICTS!
+-- (:[]).   [ArgExp] ::= ArgExp ;
+-- (:).     [ArgExp] ::= ArgExp "," [ArgExp] ;
+-- EVExp.     ArgExp ::= Exp ;
+
+-- Variable name
+VLit.     VName   ::= Ident; -- TODO: Or possibly not really necesarry? Rename because it also applies to funcs?
+
+-- Type name: either built-in or user-defined struct.
+TInt.     Type    ::= "int" ;
+TBool.    Type    ::= "bool" ;
+TString.  Type    ::= "string" ;
+TUserDef. Type    ::= Ident ;
+
+comment "//" ; -- Regular C style comments both block and single-line.
+comment "/*" "*/" ; -- Block comments can't be nested (like in C).
+comment "#" ; -- To allow scripting
+
+-- Typical lowercase boolean constants:
+BTrue.   Boolean  ::= "true" ;
+BFalse.  Boolean  ::= "false" ;
+
+-- Both versions of 'not equal' operator are accepted:
+NeqSt1.  NeqOp    ::= "!=" ;
+NeqSt2.  NeqOp    ::= "<>" ;
