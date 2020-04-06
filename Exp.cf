@@ -1,5 +1,5 @@
 entrypoints Program ;
-Prog.       Program ::= [Stm] ;
+Prog.       Program ::= [Stmt] ;
 
 -- This makes parsing much easier and enforces that ugly things like (1 + 2).foo
 -- won't parse. Our language is simple enough that it makes sense; no lists,
@@ -8,117 +8,116 @@ Prog.       Program ::= [Stm] ;
 LValueVar.  LValue ::= Ident ;
 LValueMemb. LValue ::= LValue "." Ident ;
 
-EPlus.   Exp   ::= Exp "+" Exp2 ;
-EMinus.  Exp   ::= Exp "-" Exp2 ;
+EPlus.   Expr ::= Expr "+" Expr2 ;
+EMinus.  Expr ::= Expr "-" Expr2 ;
 
-ETimes.  Exp2  ::= Exp2 "*" Exp3 ;
-EDiv.    Exp2  ::= Exp2 "/" Exp3 ;
+ETimes.  Expr2 ::= Expr2 "*" Expr3 ;
+EDiv.    Expr2 ::= Expr2 "/" Expr3 ;
 
-EPow.    Exp3  ::= Exp3 "^" Exp4 ;
+EPow.    Expr3 ::= Expr3 "^" Expr4 ;
 
-EEq.     Exp4  ::= Exp4 "==" Exp5 ;
-ENeq.    Exp4  ::= Exp4 "!=" Exp5 ;
-EGeq.    Exp4  ::= Exp4 ">=" Exp5 ;
-ELeq.    Exp4  ::= Exp4 "<=" Exp5 ;
-EGt.     Exp4  ::= Exp4 ">"  Exp5 ;
-ELt.     Exp4  ::= Exp4 "<"  Exp5 ;
+EEq.     Expr4 ::= Expr4 "==" Expr5 ;
+ENeq.    Expr4 ::= Expr4 "!=" Expr5 ;
+EGeq.    Expr4 ::= Expr4 ">=" Expr5 ;
+ELeq.    Expr4 ::= Expr4 "<=" Expr5 ;
+EGt.     Expr4 ::= Expr4 ">"  Expr5 ;
+ELt.     Expr4 ::= Expr4 "<"  Expr5 ;
 
-ELor.    Exp5  ::= Exp5 "||" Exp6 ;
-ELand.   Exp5  ::= Exp5 "&&" Exp6 ;
-EXor.    Exp5  ::= Exp5 "^^" Exp6 ;
+ELor.    Expr5 ::= Expr5 "||" Expr6 ;
+ELand.   Expr5 ::= Expr5 "&&" Expr6 ;
+EXor.    Expr5 ::= Expr5 "^^" Expr6 ;
 
-EFnCall. Exp6  ::= Ident InvokeExprList ;
-EIife.   Exp6  ::= FunDecl InvokeExprList ; -- IIFE (more in docs).
+EFnCall. Expr6 ::= Ident InvokeExprList ;
+EIife.   Expr6 ::= FunDecl InvokeExprList ; -- IIFE (more in docs).
 
-ELValue. Exp7  ::= LValue ;
+ELValue. Expr7 ::= LValue ;
 
-EString. Exp8  ::= String ;
-EInt.    Exp8  ::= Integer ;
-EBool.   Exp8  ::= Boolean ;
+EString. Expr8 ::= String ;
+EInt.    Expr8 ::= Integer ;
+EBool.   Expr8 ::= Boolean ;
 
--- Equivalent to: _. Exp ::= Exp1 ; (...) _. Exp8 ::= "(" Exp ")" ;
-coercions Exp 8 ;
+coercions Expr 8 ;
 
-(:[]).   [Exp] ::= Exp ;
-(:).     [Exp] ::= Exp "," [Exp] ;
+(:[]).   [Expr] ::= Expr ;
+(:).     [Expr] ::= Expr "," [Expr] ;
 
 -- Tuple is not a stand-alone expression (more in docs).
-EOTRegular. ExpOrTuple ::= Exp;
-EOTTuple.   ExpOrTuple ::= "[" [Exp] "]";
+EOTRegular. ExprOrTuple ::= Expr;
+EOTTuple.   ExprOrTuple ::= "[" [Expr] "]";
 
--- Split into Stm1 and Stm to avoid confilits around if/else. Using
--- Stm1 in the middle of else if gives us determinism.
-SIf.     Stm  ::= "if" "(" Exp ")" Stm ;
-SIfElse. Stm  ::= "if" "(" Exp ")" Stm1 "else" Stm ;
-SFor.    Stm  ::= "for" "(" Ident ":" Exp ".." Exp ")" Stm ; -- This declares new variable.
-SWhile.  Stm  ::= "while" "(" Exp ")" Stm ;
-SExp.    Stm1 ::= Exp ";" ;
-SDecl.   Stm1 ::= Decl ";" ;
-SFDecl.  Stm1 ::= Ident "::" FunDecl ;
-SSDecl.  Stm1 ::= Ident "::" StructDecl ;
-SAssign. Stm1 ::= LValue "=" Exp ";" ;
-SIgnore. Stm1 ::= "_" "=" ExpOrTuple ";" ; -- Not usefull, but would be weird if it didn't parse
-STDecl.  Stm1 ::= TupleTarget ":" "=" ExpOrTuple ";" ; -- Declare new variables (types are always deduced)
-STAssign.Stm1 ::= TupleTarget "=" ExpOrTuple ";" ; -- Tie existing variables.
-SReturn. Stm1 ::= "return" ReturnExp ";" ;
-SBreak.  Stm1 ::= "break" ";" ;
-SCont.   Stm1 ::= "continue" ";" ;
-SBlock.  Stm1 ::= FunBind "{" [Stm] "}" ;
-_.       Stm1 ::= Stm1 ";" ; -- Accept trailing semicolons.
-_.       Stm  ::= Stm1 ;
+-- Split into Stmt1 and Stmt to avoid confilits around if/else. Using
+-- Stmt1 in the middle of else if gives us determinism.
+SIf.     Stmt  ::= "if" "(" Expr ")" Stmt ;
+SIfElse. Stmt  ::= "if" "(" Expr ")" Stmt1 "else" Stmt ;
+SFor.    Stmt  ::= "for" "(" Ident ":" Expr ".." Expr ")" Stmt ; -- Declare new var.
+SWhile.  Stmt  ::= "while" "(" Expr ")" Stmt ;
+SExpr.   Stmt1 ::= Expr ";" ;
+SVDecl.  Stmt1 ::= VarDecl ";" ;
+SFDecl.  Stmt1 ::= Ident "::" FunDecl ;
+SSDecl.  Stmt1 ::= Ident "::" StrcDecl ;
+STDecl.  Stmt1 ::= TupleTarget ":" "=" ExprOrTuple ";" ; -- Declare new vars (types are deduced)
+SAssign. Stmt1 ::= LValue "=" Expr ";" ;
+STAssign.Stmt1 ::= TupleTarget "=" ExprOrTuple ";" ; -- Tie existing variables.
+SIgnore. Stmt1 ::= "_" "=" ExprOrTuple ";" ; -- Not usefull, but would be weird if it didn't parse
+SReturn. Stmt1 ::= "return" ReturnExpr ";" ;
+SBreak.  Stmt1 ::= "break" ";" ;
+SCont.   Stmt1 ::= "continue" ";" ;
+SBlock.  Stmt1 ::= Bind "{" [Stmt] "}" ;
+_.       Stmt1 ::= Stmt1 ";" ; -- Accept trailing semicolons.
+_.       Stmt  ::= Stmt1 ;
 
-[].  [Stm] ::= ;
-(:). [Stm] ::= Stm [Stm] ;
+[].     [Stmt] ::= ;
+(:).    [Stmt] ::= Stmt [Stmt] ;
 
 -- Tuple Tie (STAssign) could actually have LValues, not only Idents like:
 -- '[foo.x, foo.y] = funcitonThatReturnsAPair();' but I don't like the
 -- idea fundamentally. Also it could generate some ugly conflicts, so
 -- I've decided to keep it simple.
 
-TAssgn.    TupleTarget ::= "[" [IdentOrIgnr] "]" ;
+TTar. TupleTarget ::= "[" [IdentOrIgnr] "]" ;
 
-IOIName.   IdentOrIgnr ::= Ident ;
+IOIIdent.  IdentOrIgnr ::= Ident ;
 IOIIgnore. IdentOrIgnr ::= "_" ;
 (:[]).   [IdentOrIgnr] ::= IdentOrIgnr ;
 (:).     [IdentOrIgnr] ::= IdentOrIgnr "," [IdentOrIgnr] ;
 
-RExNone.    ReturnExp ::= ; -- Allowed for void functions.
-RExRegular. ReturnExp ::= ExpOrTuple ;
+DVDecl.       VarDecl ::= Ident ":" Type ; -- Declare do not assign value.
+DVDeclAsgn.   VarDecl ::= Ident ":" Type "=" Expr ; -- Decalre + assign, type is explicit.
+DVDeclDeduce. VarDecl ::= Ident ":" "=" Expr ; -- Decalre + assign, type is deduced.
 
-FDDefault. FunDecl ::= FunParams FunBind FuncRetT "{" [Stm] "}" ;
-SDDefault. StructDecl ::= "struct" "{" StructMembers "}" ;
+SDDefault. StrcDecl ::= "struct" "{" StrcMembers "}" ;
 
-SMDefault. StructMembers ::= [DeclStructMember] ;
-SMEmpty.   StructMembers ::= ; -- To allow empty structs.
+SMDefault. StrcMembers ::= [DeclStrcMember] ;
+SMEmpty.   StrcMembers ::= ; -- To allow empty structs.
 
-FDBindDefault.FunBind ::= "!" "(" [Ident] ")";
-FDBindPure.   FunBind ::= "!" "(" ")" ; -- bind () is same as not specifying bind at all
-FDBindPure2.  FunBind ::= "!" ; -- user is allowed to skip paren here
-FDBindNone.   FunBind ::= ; -- No bind means the function can refer to any variable from outside scope.
+DStrMem. DeclStrcMember  ::= Ident ":" Type ;
+(:[]).  [DeclStrcMember] ::= DeclStrcMember ";" ;
+(:).    [DeclStrcMember] ::= DeclStrcMember ";" [DeclStrcMember] ;
 
-DDeclUninit.  Decl ::= Ident ":" Type ; -- Declare do not assign value.
-DDeclAssign.  Decl ::= Ident ":" Type "=" Exp ; -- Decalre + assign, type is explicit.
-DDeclDeduce.  Decl ::= Ident ":" "=" Exp ; -- Decalre + assign, type is deduced.
+FDDefault. FunDecl ::= FunParams Bind FuncRetT "{" [Stmt] "}" ;
 
-IELDefault. InvokeExprList ::= "(" [Exp] ")" ;
+BdDefault. Bind ::= "!" "(" [Ident] ")";
+BdPure.    Bind ::= "!" "(" ")" ; -- !() means that function is pure.
+BdPureAlt. Bind ::= "!" ; -- user is allowed to skip paren here
+BdNone.    Bind ::= ; -- No 'bind' means the function can refer to any scope.
+
+IELDefault. InvokeExprList ::= "(" [Expr] ")" ;
 IELEmpty.   InvokeExprList ::= "(" ")" ;
 
-DDeclBasic. DeclBasic   ::= Ident ":" Type ;
-(:[]).      [DeclBasic] ::= DeclBasic ;
-(:).        [DeclBasic] ::= DeclBasic "," [DeclBasic] ;
+DDeclBasic. DeclFunParam  ::= Ident ":" Type ;
+(:[]).     [DeclFunParam] ::= DeclFunParam ;
+(:).       [DeclFunParam] ::= DeclFunParam "," [DeclFunParam] ;
 
-FPDefault.  FunParams   ::= "(" [DeclBasic] ")" ;
-FPEmpty.    FunParams   ::= "(" ")" ;
+RExNone.    ReturnExpr ::= ; -- Allowed for void functions.
+RExRegular. ReturnExpr ::= ExprOrTuple ;
 
--- Function return type, user is allowed to skip it, if func does not return
--- anything ('void' return type).
-FRTDefault.  FuncRetT ::= "->" Type ;
-FRTTuple.    FuncRetT ::= "->" "[" [Type] "]" ; -- Tuple (No nesting tuples).
-FRTEmpty.    FuncRetT ::= ; -- User is allowed to skip -> when no return type.
+FPList.  FunParams ::= "(" [DeclFunParam] ")" ;
+FPEmpty. FunParams ::= "(" ")" ;
 
-DStrMem. DeclStructMember   ::= DeclBasic ;
-(:[]).   [DeclStructMember] ::= DeclStructMember ";" ;
-(:).     [DeclStructMember] ::= DeclStructMember ";" [DeclStructMember] ;
+-- Function return type.
+FRTSingle. FuncRetT ::= "->" Type ;
+FRTTuple.  FuncRetT ::= "->" "[" [Type] "]" ; -- Tuple (No nesting tuples).
+FRTEmpty.  FuncRetT ::= ; -- User is allowed to skip -> when no return type.
 
 TInt.     Type ::= "int" ;
 TBool.    Type ::= "bool" ;

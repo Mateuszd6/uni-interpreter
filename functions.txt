@@ -346,3 +346,12 @@ _ = foobar();
 // * :: die (string)!                    : Kill program execution (with message).
 //
 // IO functions return a boolean telling if the operation succeeded or not.
+
+
+// Disclaimer:
+//
+// Most of the ideas here (especially the '!' operator, but also the assigment
+// idea) were invented (or at least gathered up and presented) by Jonathan Blow
+// in his talk 'Ideas for a new programming language for games'. When he
+// described something similar (syntax is slightly different that what I've came
+// up with): https://www.youtube.com/watch?v=TH9VCN6UkyQ .
