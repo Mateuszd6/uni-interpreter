@@ -2,7 +2,6 @@
 -- [].       [Stm]    ::= ; -- TODO: move this to statemetns, place more logically.
 -- (:).      [Stm]    ::= Stm [Stm] ;
 
--- TODO: Investigate entry point.
 entrypoints Program ;
 Prog.   Program ::= [Stm] ;
 
@@ -34,9 +33,7 @@ ELand.   Exp5  ::= Exp5 "&&" Exp6 ;
 EXor.    Exp5  ::= Exp5 "^^" Exp6 ;
 
 EFnCall. Exp6  ::= Ident InvokeExprList ;
-
--- 'Lambda' funciton. TODO: READ MODE.
-EIife.   Exp6  ::= FunDecl InvokeExprList ;
+EIife.   Exp6  ::= FunDecl InvokeExprList ; -- IIFE (more in docs).
 
 ELValue. Exp7  ::= LValue ;
 
@@ -44,15 +41,11 @@ EString. Exp8  ::= String ;
 EInt.    Exp8  ::= Integer ;
 EBool.   Exp8  ::= Boolean ;
 
--- Nested tuples would parse, but language does not support them.
--- ETuple.  Exp9   ::= "[" [Ident] "]" ; -- TODO
-
--- TODO: Remove when sure:
--- NOTE: Equivalent to:
--- _.       Exp   ::= Exp1 ;
--- (...)
--- _.       Exp8  ::= "(" Exp ")" ;
+-- Equivalent to: _. Exp ::= Exp1 ; (...) _. Exp8 ::= "(" Exp ")" ;
 coercions Exp 8 ;
+
+(:[]).   [Exp] ::= Exp ;
+(:).     [Exp] ::= Exp "," [Exp] ;
 
 -- Split into Stm1 and Stm to avoid confilits around if - else, which happen
 -- becase we are not using endif or anything like this.
@@ -63,7 +56,8 @@ SDecl.   Stm1 ::= Decl ";" ;
 SFDecl.  Stm1 ::= Ident "::" FunDecl ;
 SSDecl.  Stm1 ::= Ident "::" StructDecl ;
 SAssign. Stm1 ::= LValue "=" Exp ";" ; -- TODO: Could be 'Ident "=" Exp', but member access: 'foo.bar = "xyz"';
-STAssign.Stm1 ::= TupleAssign TupleExp ";" ; -- TODO: This is acutally TupleAssignOrDeclare
+STAssign.Stm1 ::= "[" [Ident] "]" "=" TupleExp ";" ; -- Tie existing variables.
+STDecl.  Stm1 ::= "[" [Ident] "]" ":" "=" TupleExp ";" ; -- Declare new variables (types are always deduced).
 SReturn. Stm1 ::= "return" ReturnExp ";" ; -- TODO: Return in void functions won't work?
 SForInt. Stm1 ::= "for" "(" Ident ":" Exp ".." Exp ")" Stm1 ; -- This declares new variable.
 SWhile.  Stm1 ::= "while" "(" Exp ")" Stm1 ;
@@ -73,10 +67,11 @@ _.       Stm  ::= Stm1 ;
 (:[]).   [Stm] ::= Stm ;
 (:).     [Stm] ::= Stm [Stm] ;
 
--- Tuple is not a stand-alone expression to avoid conflicts and issues
--- with nesting tuples. Languege supports neither by design. Stuff
--- like '[1];' '[1 + 2];' '[a, b];' does not parse. They only thing we
--- can do with tuple is to assign it, or return it. -- TODO: Docs.
+-- Tuple is not a stand-alone expression (more in docs).
+-- Tuple is not a stand-alone expression to avoid conflicts and issues with
+-- nesting tuples. Languege supports neither by design. Stuff like: '[1];'
+-- '[1 + 2];' '[a, b];' does not parse. They only thing we can do with tuple is
+-- to assign it, or return it. -- TODO: Docs.
 TExDefault. TupleExp ::= "[" [Exp] "]";
 
 RExRegular. ReturnExp ::= Exp ;
@@ -86,7 +81,7 @@ RExTuple.   ReturnExp ::= TupleExp ;
 FDDefault. FunDecl ::= FunParams FunBind FuncRetT "{" [Stm] "}" ;
 SDDefault. StructDecl ::= "struct" "{" StructMembers "}" ;
 
-SMDefault. StructMembers ::= [DeclSuperBasic] ;
+SMDefault. StructMembers ::= [DeclStructMember] ;
 SMEmpty.   StructMembers ::= ; -- To allow empty structs.
 
 FDBindDefault.FunBind ::= "!" "(" [Ident] ")";
@@ -94,14 +89,13 @@ FDBindPure.   FunBind ::= "!" "(" ")" ; -- bind () is same as not specifying bin
 FDBindPure2.  FunBind ::= "!" ; -- user is allowed to skip paren here
 FDBindNone.   FunBind ::= ; -- No bind means the function can refer to any variable from outside scope.
 
-DDeclUninit.   Decl ::= Ident ":" Type ; -- Declare do not assign value.
-DDeclAssign.   Decl ::= Ident ":" Type "=" Exp ; -- Decalre + assign, type is explicit.
-DDeclDeduce.   Decl ::= Ident ":" "=" Exp ; -- Decalre + assign, type is deduced.
+DDeclUninit.  Decl ::= Ident ":" Type ; -- Declare do not assign value.
+DDeclAssign.  Decl ::= Ident ":" Type "=" Exp ; -- Decalre + assign, type is explicit.
+DDeclDeduce.  Decl ::= Ident ":" "=" Exp ; -- Decalre + assign, type is deduced.
 
-TADeclare.     TupleAssign ::= "[" [Ident] "]" ":" "=" ; -- declare new variables
-TATie.         TupleAssign ::= "[" [Ident] "]" "=" ; -- assign values of existing variables (like c++'s std::tie)
-
-AVSBSingle. DeclSuperBasic ::= Ident ":" Type ; -- TODO: This does not stay!
+-- TODO: Tie could actually have LValues, not only idents like:
+-- '[foo.x, foo.y] = funcitonThatReturnsAPair();' but I don't like the idea
+-- fundamentally. Also it could generate some ugly conflicts.
 
 IIf.        IfStm   ::= "if" "(" Exp ")" Stm1 ;
 IElse.      ElseStm ::= "else" Stm ;
@@ -124,26 +118,23 @@ FRTDefault.  FuncRetT ::= "->" Type ;
 FRTTuple.    FuncRetT ::= "->" "[" [Type] "]" ; -- Tuple (No nesting tuples).
 FRTEmpty.    FuncRetT ::= ; -- User is allowed to skip -> when no return type.
 
--- Type name: either built-in or user-defined struct.
-TInt.     Type    ::= "int" ;
-TBool.    Type    ::= "bool" ;
-TString.  Type    ::= "string" ;
-TUserDef. Type    ::= Ident ;
+DStrMem. DeclStructMember   ::= DeclBasic ;
+(:[]).   [DeclStructMember] ::= DeclStructMember ";" ;
+(:).     [DeclStructMember] ::= DeclStructMember ";" [DeclStructMember] ;
 
-BTrue.   Boolean  ::= "true" ;
-BFalse.  Boolean  ::= "false" ;
+TInt.     Type ::= "int" ;
+TBool.    Type ::= "bool" ;
+TString.  Type ::= "string" ;
+TUserDef. Type ::= Ident ;
 
-(:[]).   [Exp] ::= Exp ;
-(:).     [Exp] ::= Exp "," [Exp] ;
+(:[]).   [Type]  ::= Type ;
+(:).     [Type]  ::= Type "," [Type] ;
 
 (:[]).   [Ident] ::= Ident ;
 (:).     [Ident] ::= Ident "," [Ident] ;
 
-(:[]).   [DeclSuperBasic] ::= DeclSuperBasic ";" ;
-(:).     [DeclSuperBasic] ::= DeclSuperBasic ";" [DeclSuperBasic] ;
-
-(:[]).   [Type] ::= Type ;
-(:).     [Type] ::= Type "," [Type] ;
+BTrue.   Boolean ::= "true" ;
+BFalse.  Boolean ::= "false" ;
 
 comment "//" ; -- Regular C style comments both block and single-line.
 comment "/*" "*/" ; -- Block comments can't be nested (like in C).
