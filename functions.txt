@@ -1,0 +1,147 @@
+// Tests and comments (this file should be parsed with no issues):
+
+// Declarations:
+
+
+// Most important feature of the language is a '!' (bind) operator. This was
+// design to make code refactoring easier by specifying which variables can be
+// accessed in the block / lambda / function. There is a little difference
+// between these anyway.
+
+// Super boring example, regular named (global) function.
+exmaple1 :: (x : int, y : int) -> int
+{
+    return y * x;
+}
+
+// Return type can be ommited, if function does not return.
+out : int = 0;
+exmaple2 :: (x : int, y : int)
+{
+    out = y * x;
+}
+
+// Function that binds a variable - only foo (and of course function params) are
+// visible inside the function body. Everything should be an interpreter error.
+foo : int = 12;
+exmaple3 :: (x : int, y: int) !(foo) -> int
+{
+    return foo + y * x;
+}
+
+// This function is pure. It is not the same as skipping '!' - single '!' means
+// fucntion can refer to _non_ variables (aka. is pure), skipping '!' allows it
+// to refer to all variables (like in C).
+foo : int = 12;
+exmaple4 :: (x : int, y: int)! -> int
+{
+    // foo can't be accessed here, the function is pure.
+    return y * x;
+}
+
+// This function is not pure, and can reference every variable in its scope. It
+// means global variables + local scope variables, if function is defined in the
+// local scope.
+foo : int = 12;
+exmaple5 :: (x : int, y: int) -> int
+{
+    return foo + y * x;
+}
+
+// Nested functions.
+exmaple6 :: (x : int, y: int)! -> int
+{
+    square :: (x : int)! -> int
+    {
+        return x * x;
+    }
+
+    return square(x) + square(y);
+}
+
+// Lambda expressions. Since we don't have a higher order funcs (no passing, no
+// returning function), all we can do with it, is to immidietly invoke it (IIFE)
+// This is usefull when we have block that caluclates something and we want to
+// keep it as pure as possible.
+iife_example1 :: (x : int, y : int)!
+{
+    out : int = 0;
+
+    {
+        x = x + 6;
+        y = y - x;
+        x = x * y;
+        y = x - 5;
+        out = x + y;
+    }
+}
+
+// We could make it a little more safe and refactoring friendly by binding x and
+// y and out in the block, so that we can't refer to anything else.
+foo : int = 42;
+iife_example2 :: (x : int, y : int)!
+{
+    out : int = 0;
+    !(x, y)
+    {
+        x = x + 6;
+        y = y - x;
+        x = x * y;
+        y = x - 5;
+        out = x + y;
+    }
+}
+
+// We have to declare out and then change if, which is ugly and bugprone, thats
+// where IIFE comes to help us.
+iife_example3 :: (x : int, y : int)!
+{
+    // We can define out and assgin it at the same time. Assing 'out' to
+    // Immidietly Called Function Expression which can refer only to x and y
+    // and computes something from them as purely as it is possible.
+    out : int = () !(x, y) -> int {
+        x = x + 6;
+        y = y - x;
+        x = x * y;
+        y = x - 5;
+        return x + y;
+    }();
+
+    // Alternatively, we could do:
+    out : int = (x_ : int, y_ : int)! -> int {
+        x_ = x_ + 6;
+        y_ = y_ - x_;
+        x_ = x_ * y_;
+        y_ = x_ - 5;
+        return x_ + y_;
+    }();
+    // ... which achieves the same, but is less ugly.
+}
+
+
+// Struct definitions:
+struct_example :: ()!
+{
+    // Simple struct definition.
+    foo :: struct
+    {
+    }
+
+    bar :: struct
+    {
+        x : int;
+    }
+
+    baz :: struct
+    {
+        x : int;
+        y : int;
+    }
+
+    v3 :: struct
+    {
+        x : int;
+        y : int;
+        z : int;
+    }
+}
