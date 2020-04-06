@@ -1,7 +1,88 @@
 // Tests and comments (this file should be parsed with no issues):
 
+// The 'program' in a sequence of statements written from the top to the bottom.
+// Instructions are executed one-after-another.  Functions and variables
+// declared without parent scope are considered global.  User can never redefine
+// a global variable / function. This results in runtime (of course)
+// error. Locally defined symbols are visible in their scope (like in C). User
+// can't redefine symbol in the same scope. For example the following:
+
+// '{ foo : int = 0; foo : int = 0; }' would parse but fails at runtime. Same
+// rules apply to functions and structs.
+
 // Declarations:
 
+// Define variable.
+// (type is either string / int / bool or user-defined struct (see: structs)):
+variable_name : variable_type ;
+foo : int ;
+
+// Declare and assign value.
+foo : int = 4;
+
+// Declare, assign but deduce the type.
+foo := 4;
+
+// The idea is that user can 'skip' the part of declaration he does not want,
+// like skip the type if type can be deduced (deducing type works, because the
+// language is statically typed). Also the difference between declaration and
+// simple assigment is the ':' which appears in every type of declaration.
+// Asignments however:
+foo = 4;
+// ... does not have this token and are simple C-like assignments.
+
+// Expressions are basic arithmetic and logic expressions taken straight from C,
+// operator @ for string concatenation and IIFE invokation (in grammar called
+// EIife, described later here in the 'functions' part).
+
+// Struct definitions. Very similar to C, just with slightly different syntax.
+foo :: struct
+{
+}
+
+bar :: struct
+{
+    x : int;
+}
+
+baz :: struct
+{
+    x : int;
+    y : int;
+}
+
+v3 :: struct
+{
+    x : int;
+    y : int;
+    z : int;
+}
+
+quater :: struct
+{
+    e : v3;
+    w : int;
+}
+
+example_vector : v3;
+example_quaterion : quater;
+x_copy = example_vector.x; // Getting struct members like in C.
+x_copy_q = example_quaterion.e.x; // dots can follow one another.
+// nope := example_vector.(e.x); // stuff like this won't parse of course.
+
+// Of course in the above examples, the variables would be uninitialized, which
+// causes a runtime error.
+
+// Structs can be defined for the scope:
+{
+    foobar :: struct
+    {
+        zzz : string;
+    }
+
+    m : foobar;
+    m.zzz = "mateusz";
+}
 
 // Most important feature of the language is a '!' (bind) operator. This was
 // design to make code refactoring easier by specifying which variables can be
@@ -82,7 +163,7 @@ foo : int = 42;
 iife_example2 :: (x : int, y : int)!
 {
     out : int = 0;
-    !(x, y)
+    !(x, y, out)
     {
         x = x + 6;
         y = y - x;
@@ -118,30 +199,18 @@ iife_example3 :: (x : int, y : int)!
     // ... which achieves the same, but is less ugly.
 }
 
+// The whole idea about it is that is is very easy to extract code from block
+// into 'binded' block or iife, into local function, into global function, which
+// all have a very similar syntax (lambda, aka. 'unnamed_function' definition
+// sytnax is the same as 'named function', but without the name). Which is not
+// what most languages offer (like in C++, lambdas have everything differently
+// than regular functions).
 
-// Struct definitions:
-struct_example :: ()!
-{
-    // Simple struct definition.
-    foo :: struct
-    {
-    }
-
-    bar :: struct
-    {
-        x : int;
-    }
-
-    baz :: struct
-    {
-        x : int;
-        y : int;
-    }
-
-    v3 :: struct
-    {
-        x : int;
-        y : int;
-        z : int;
-    }
-}
+// The interpreter provides following 'standard library' functions:
+// * :: read_int ()! -> [bool, int]      : Read an integer from stdin.
+// * :: read_string ()! -> [bool, int]   : Read a string from stdin.
+// * :: write_int ()! -> [bool]          : Write an int to stdout.
+// * :: write_string ()! -> [bool]       : Write a string to stdout.
+// * :: die (string)!                    : Kill program execution (with message).
+//
+// IO functions return a boolean telling if the operation succeeded or not.
