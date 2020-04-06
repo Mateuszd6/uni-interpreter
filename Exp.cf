@@ -3,16 +3,15 @@
 -- (:).      [Stm]    ::= Stm [Stm] ;
 
 entrypoints Program ;
-Prog.   Program ::= [Stm] ;
+Prog.       Program ::= [Stm] ;
 
 -- This makes parsing much easier and enforces that ugly things like (1 + 2).foo
--- won't parse. Iur language is simple enought that it makes sense; no lists,
+-- won't parse. Our language is simple enough that it makes sense; no lists,
 -- records just strings so the only thing we would like to have on the LHS when
 -- e.g. assigning, is either an existing variable name, or its member.
 LValueVar.  LValue ::= Ident ;
 LValueMemb. LValue ::= LValue "." Ident ;
 
--- TODO: Make tuple decl and tie in statements, no expr.
 EPlus.   Exp   ::= Exp "+" Exp2 ;
 EMinus.  Exp   ::= Exp "-" Exp2 ;
 
@@ -47,6 +46,10 @@ coercions Exp 8 ;
 (:[]).   [Exp] ::= Exp ;
 (:).     [Exp] ::= Exp "," [Exp] ;
 
+-- Tuple is not a stand-alone expression (more in docs).
+EOTRegular. ExpOrTuple ::= Exp;
+EOTTuple.   ExpOrTuple ::= "[" [Exp] "]";
+
 -- Split into Stm1 and Stm to avoid confilits around if - else, which happen
 -- becase we are not using endif or anything like this.
 -- TODO: We cannot do for () if () {}
@@ -55,27 +58,30 @@ SExp.    Stm1 ::= Exp ";" ;
 SDecl.   Stm1 ::= Decl ";" ;
 SFDecl.  Stm1 ::= Ident "::" FunDecl ;
 SSDecl.  Stm1 ::= Ident "::" StructDecl ;
-SAssign. Stm1 ::= LValue "=" Exp ";" ; -- TODO: Could be 'Ident "=" Exp', but member access: 'foo.bar = "xyz"';
-STAssign.Stm1 ::= "[" [Ident] "]" "=" TupleExp ";" ; -- Tie existing variables.
-STDecl.  Stm1 ::= "[" [Ident] "]" ":" "=" TupleExp ";" ; -- Declare new variables (types are always deduced).
-SReturn. Stm1 ::= "return" ReturnExp ";" ; -- TODO: Return in void functions won't work?
+SAssign. Stm1 ::= LValue "=" Exp ";" ;
+SIgnore. Stm1 ::= "_" "=" ExpOrTuple ";" ; -- Not usefull, but would be weird if it didn't parse
+STDecl.  Stm1 ::= TupleTarget ":" "=" ExpOrTuple ";" ; -- Declare new variables (types are always deduced)
+STAssign.Stm1 ::= TupleTarget "=" ExpOrTuple ";" ; -- Tie existing variables. -- TODO: support '_'
+SReturn. Stm1 ::= "return" ReturnExp ";" ;
 SForInt. Stm1 ::= "for" "(" Ident ":" Exp ".." Exp ")" Stm1 ; -- This declares new variable.
 SWhile.  Stm1 ::= "while" "(" Exp ")" Stm1 ;
+SBreak.  Stm1 ::= "break" ";" ;
+SCont.   Stm1 ::= "continue" ";" ;
 SBlock.  Stm1 ::= FunBind "{" [Stm] "}" ;
 _.       Stm  ::= Stm1 ;
 
 (:[]).   [Stm] ::= Stm ;
 (:).     [Stm] ::= Stm [Stm] ;
 
--- Tuple is not a stand-alone expression (more in docs).
--- Tuple is not a stand-alone expression to avoid conflicts and issues with
--- nesting tuples. Languege supports neither by design. Stuff like: '[1];'
--- '[1 + 2];' '[a, b];' does not parse. They only thing we can do with tuple is
--- to assign it, or return it. -- TODO: Docs.
-TExDefault. TupleExp ::= "[" [Exp] "]";
+TAssgn.    TupleTarget ::= "[" [IdentOrIgnr] "]" ;
 
-RExRegular. ReturnExp ::= Exp ;
-RExTuple.   ReturnExp ::= TupleExp ;
+IOIName.   IdentOrIgnr ::= Ident ;
+IOIIgnore. IdentOrIgnr ::= "_" ;
+(:[]).   [IdentOrIgnr] ::= IdentOrIgnr ;
+(:).     [IdentOrIgnr] ::= IdentOrIgnr "," [IdentOrIgnr] ;
+
+RExNone.    ReturnExp ::= ; -- Allowed for void functions.
+RExRegular. ReturnExp ::= ExpOrTuple ;
 
 -- TODO: Split fun definition with declaration, for clarity
 FDDefault. FunDecl ::= FunParams FunBind FuncRetT "{" [Stm] "}" ;
@@ -121,6 +127,8 @@ FRTEmpty.    FuncRetT ::= ; -- User is allowed to skip -> when no return type.
 DStrMem. DeclStructMember   ::= DeclBasic ;
 (:[]).   [DeclStructMember] ::= DeclStructMember ";" ;
 (:).     [DeclStructMember] ::= DeclStructMember ";" [DeclStructMember] ;
+
+-- TODO: Empty functions do not parse.
 
 TInt.     Type ::= "int" ;
 TBool.    Type ::= "bool" ;

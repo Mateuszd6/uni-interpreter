@@ -206,6 +206,71 @@ iife_example3 :: (x : int, y : int)!
 // what most languages offer (like in C++, lambdas have everything differently
 // than regular functions).
 
+// Tuples:
+//
+// Tuple syntax are (exclusively) square brackets. But the amount of stuff that
+// user can do to a tuple is very limited (by design). So there is no nested
+// tuples, No tuple 'type' and getting a variable by name (like foo.get<0>() in
+// C++) etc.  The only thing user can do with a tuple is asign it or return
+// it. However, asignment is possible with ':=' and with '=', which causes
+// different things.  := declares new variable, and = sets variables that
+// already exists to their new values.
+//
+// Since tuple is not a stand-alone expression nesting tuples or just using them
+// as single statemetn does not parse. Using _ inside a tuple match is just an
+// ignore. It can't however be used when _returning_ tuples - in that case all
+// values must be specified (Compare TupleExp and TupleTarget).
+
+{
+    // Tuples can be used to create new variables:
+    [x, y] := [1, 2]; // x and y and declared here.
+}
+
+{
+    // Or to assign to already existing onces (like C++'s std::tie):
+    x : int;
+    y : int;
+    [x, y] = [1, 2];
+}
+
+{
+    // Also operator '_' is supported on the lhs of the tuple assignment.
+    // Noe that if trying to replace 1 or 2 with _ it would not parse,
+    // bacause rhs is list of expressions, and lhs identifiers / '_'.
+    [_, y] := [1, 2];
+}
+
+// Tuples can be returned from the function:
+tuple_example :: ()! -> [int, int] {
+    x : int = 12;
+    y : int = x * x;
+
+    return [x, y];
+}
+
+// Or (of course) from the IIFE:
+[x, y] := ()! -> [int, int] {
+    x : int = 12;
+    y : int = x * x;
+
+    return [x, y];
+}();
+
+// Nesting tuples is not supported. Tuple is not stand-alone expression. Empty
+// tuples also are not supported. The following do not parse:
+// _ = []; // as opposed to '_ = [1];' which does.
+// [1];
+
+// Operator '_' also works for assignments, but _not_ for declarations, so:
+_ = "mateusz";
+_ = [ 1, 2, "mateusz" ];
+_ = foobar();
+// ... would parse, but:
+// _ := "mateusz";
+// _ := [ 1, 2, "mateusz" ];
+// _ := foobar();
+// ... do not.
+
 // The interpreter provides following 'standard library' functions:
 // * :: read_int ()! -> [bool, int]      : Read an integer from stdin.
 // * :: read_string ()! -> [bool, int]   : Read a string from stdin.
