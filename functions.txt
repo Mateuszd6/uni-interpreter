@@ -3,10 +3,13 @@
 // The 'program' in a sequence of statements written from the top to the bottom.
 // Instructions are executed one-after-another.  Functions and variables
 // declared without parent scope are considered global.  User can never redefine
-// a global variable / function. This results in runtime (of course)
-// error. Locally defined symbols are visible in their scope (like in C). User
-// can't redefine symbol in the same scope. For example the following:
-
+// a global variable / function. Defined but not assigned variables don't have
+// default value and trying to use them (like uninitialized bool in if expresion
+// or integer for adding) causes interpreter to crash the program. There is no
+// 'null' constant to which an expression can be compared. This is by design,
+// becasue nulls make type deduction much harder. Locally defined symbols are
+// visible in their scope (like in C). User can't redefine symbol in the same
+// scope. For example the following:
 // '{ foo : int = 0; foo : int = 0; }' would parse but fails at runtime. Same
 // rules apply to functions and structs.
 
@@ -34,6 +37,70 @@ foo = 4;
 // Expressions are basic arithmetic and logic expressions taken straight from C,
 // operator @ for string concatenation and IIFE invokation (in grammar called
 // EIife, described later here in the 'functions' part).
+
+// Most of the syntax is C-like:
+if (boolean_expr)
+{
+    statement();
+}
+
+if (true)
+    statement();
+
+if (ivokeFunctionThatReturnsBool())
+    statement();
+
+if (ivokeFunctionThatReturnsBool())
+{
+}
+
+while (bar)
+{
+}
+
+while (bar)
+    if (foo)
+        return 5;
+
+// For is a little different. There is no range-for loop, fors only go from
+// integer to integer by one. The interpreter will decide (at runtime) whether
+// we are iterating upwards on downwards.
+for (new_var_name : 1 .. 2)
+{
+}
+
+// Of course these don't have to be constants:
+for (new_var_name : begin() .. end())
+{
+    // for and while loops support break and continue;
+    break;
+    continue;
+}
+
+// Also mixed with other expressions, braces (like in C) are not needed.
+for (new_var_name : begin() .. end())
+    if (foo)
+    {
+    }
+
+for (new_var_name : begin() .. end())
+    while (foo)
+    {
+    }
+
+if (foo)
+    for (new_var_name : begin() .. end())
+    {
+    }
+
+while (foo)
+    for (new_var_name : begin() .. end())
+    {
+    }
+
+{ } // Empty blocks works
+
+;;;; // trailing ';' are accepted and not present in  ast, thanks to bnfc.
 
 // Struct definitions. Very similar to C, just with slightly different syntax.
 foo :: struct

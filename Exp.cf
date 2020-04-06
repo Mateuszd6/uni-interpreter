@@ -1,7 +1,3 @@
--- TODO: This is smarter way to write empty?
--- [].       [Stm]    ::= ; -- TODO: move this to statemetns, place more logically.
--- (:).      [Stm]    ::= Stm [Stm] ;
-
 entrypoints Program ;
 Prog.       Program ::= [Stm] ;
 
@@ -50,10 +46,12 @@ coercions Exp 8 ;
 EOTRegular. ExpOrTuple ::= Exp;
 EOTTuple.   ExpOrTuple ::= "[" [Exp] "]";
 
--- Split into Stm1 and Stm to avoid confilits around if - else, which happen
--- becase we are not using endif or anything like this.
--- TODO: We cannot do for () if () {}
-SIf.     Stm  ::= IfStm ElseStm ; -- ElseStm can be empty to allow single if.
+-- Split into Stm1 and Stm to avoid confilits around if/else. Using
+-- Stm1 in the middle of else if gives us determinism.
+SIf.     Stm  ::= "if" "(" Exp ")" Stm ;
+SIfElse. Stm  ::= "if" "(" Exp ")" Stm1 "else" Stm ;
+SFor.    Stm  ::= "for" "(" Ident ":" Exp ".." Exp ")" Stm ; -- This declares new variable.
+SWhile.  Stm  ::= "while" "(" Exp ")" Stm ;
 SExp.    Stm1 ::= Exp ";" ;
 SDecl.   Stm1 ::= Decl ";" ;
 SFDecl.  Stm1 ::= Ident "::" FunDecl ;
@@ -61,17 +59,21 @@ SSDecl.  Stm1 ::= Ident "::" StructDecl ;
 SAssign. Stm1 ::= LValue "=" Exp ";" ;
 SIgnore. Stm1 ::= "_" "=" ExpOrTuple ";" ; -- Not usefull, but would be weird if it didn't parse
 STDecl.  Stm1 ::= TupleTarget ":" "=" ExpOrTuple ";" ; -- Declare new variables (types are always deduced)
-STAssign.Stm1 ::= TupleTarget "=" ExpOrTuple ";" ; -- Tie existing variables. -- TODO: support '_'
+STAssign.Stm1 ::= TupleTarget "=" ExpOrTuple ";" ; -- Tie existing variables.
 SReturn. Stm1 ::= "return" ReturnExp ";" ;
-SForInt. Stm1 ::= "for" "(" Ident ":" Exp ".." Exp ")" Stm1 ; -- This declares new variable.
-SWhile.  Stm1 ::= "while" "(" Exp ")" Stm1 ;
 SBreak.  Stm1 ::= "break" ";" ;
 SCont.   Stm1 ::= "continue" ";" ;
 SBlock.  Stm1 ::= FunBind "{" [Stm] "}" ;
+_.       Stm1 ::= Stm1 ";" ; -- Accept trailing semicolons.
 _.       Stm  ::= Stm1 ;
 
-(:[]).   [Stm] ::= Stm ;
-(:).     [Stm] ::= Stm [Stm] ;
+[].  [Stm] ::= ;
+(:). [Stm] ::= Stm [Stm] ;
+
+-- Tuple Tie (STAssign) could actually have LValues, not only Idents like:
+-- '[foo.x, foo.y] = funcitonThatReturnsAPair();' but I don't like the
+-- idea fundamentally. Also it could generate some ugly conflicts, so
+-- I've decided to keep it simple.
 
 TAssgn.    TupleTarget ::= "[" [IdentOrIgnr] "]" ;
 
@@ -83,7 +85,6 @@ IOIIgnore. IdentOrIgnr ::= "_" ;
 RExNone.    ReturnExp ::= ; -- Allowed for void functions.
 RExRegular. ReturnExp ::= ExpOrTuple ;
 
--- TODO: Split fun definition with declaration, for clarity
 FDDefault. FunDecl ::= FunParams FunBind FuncRetT "{" [Stm] "}" ;
 SDDefault. StructDecl ::= "struct" "{" StructMembers "}" ;
 
@@ -99,14 +100,6 @@ DDeclUninit.  Decl ::= Ident ":" Type ; -- Declare do not assign value.
 DDeclAssign.  Decl ::= Ident ":" Type "=" Exp ; -- Decalre + assign, type is explicit.
 DDeclDeduce.  Decl ::= Ident ":" "=" Exp ; -- Decalre + assign, type is deduced.
 
--- TODO: Tie could actually have LValues, not only idents like:
--- '[foo.x, foo.y] = funcitonThatReturnsAPair();' but I don't like the idea
--- fundamentally. Also it could generate some ugly conflicts.
-
-IIf.        IfStm   ::= "if" "(" Exp ")" Stm1 ;
-IElse.      ElseStm ::= "else" Stm ;
-IElseEmpty. ElseStm ::= ;
-
 IELDefault. InvokeExprList ::= "(" [Exp] ")" ;
 IELEmpty.   InvokeExprList ::= "(" ")" ;
 
@@ -119,7 +112,6 @@ FPEmpty.    FunParams   ::= "(" ")" ;
 
 -- Function return type, user is allowed to skip it, if func does not return
 -- anything ('void' return type).
--- TODO: Rename to FuncRetType?
 FRTDefault.  FuncRetT ::= "->" Type ;
 FRTTuple.    FuncRetT ::= "->" "[" [Type] "]" ; -- Tuple (No nesting tuples).
 FRTEmpty.    FuncRetT ::= ; -- User is allowed to skip -> when no return type.
@@ -128,12 +120,10 @@ DStrMem. DeclStructMember   ::= DeclBasic ;
 (:[]).   [DeclStructMember] ::= DeclStructMember ";" ;
 (:).     [DeclStructMember] ::= DeclStructMember ";" [DeclStructMember] ;
 
--- TODO: Empty functions do not parse.
-
 TInt.     Type ::= "int" ;
 TBool.    Type ::= "bool" ;
 TString.  Type ::= "string" ;
-TUserDef. Type ::= Ident ;
+TUser.    Type ::= Ident ;
 
 (:[]).   [Type]  ::= Type ;
 (:).     [Type]  ::= Type "," [Type] ;
