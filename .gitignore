@@ -1,3 +1,5 @@
 interpreter
 *.x
 *.y
+obj/
+interf/
