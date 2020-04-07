@@ -20,7 +20,7 @@ ErrM.hs LexExp.x PrintExp.hs ParExp.y TestExp.hs : Exp.cf
 	$(BNFC) --haskell Exp.cf
 
 %.hs : %.y
-	$(HAPPY) --ghc --coerce --array --info $<
+	$(HAPPY) --ghc --coerce --array $<
 
 %.hs : %.x
 	$(ALEX) --ghc $<
