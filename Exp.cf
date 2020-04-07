@@ -10,6 +10,7 @@ LValueMemb. LValue ::= LValue "." Ident ;
 
 EPlus.   Expr ::= Expr "+" Expr2 ;
 EMinus.  Expr ::= Expr "-" Expr2 ;
+ECat.    Expr ::= Expr "@" Expr2 ;
 
 ETimes.  Expr2 ::= Expr2 "*" Expr3 ;
 EDiv.    Expr2 ::= Expr2 "/" Expr3 ;
