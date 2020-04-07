@@ -1,3 +1,6 @@
+# use make language to generate all bnfc files.
+# use make interpreter (or just make / make all) to generate interpreter program.
+
 export WHERE := local
 ifeq ($(WHERE),students)
 	export BNFC := /home/students/inf/PUBLIC/MRJP/bin/students/bnfc
@@ -9,18 +12,16 @@ else
 	export HAPPY := $(HOME)/.cabal/bin/happy
 endif
 
+export BNFC_TARGETS := LexLanguage.hs ParLanguage.hs AbsLanguage.hs SkelLanguage.hs PrintLanguage.hs ErrM.hs
+
 export PKGNAME := mateusz_dudzinski
 
-.PHONY : all clean distclean
+.PHONY : all interpreter language clean package
+all : interpreter
 
-# Default goal.
-
-all : TestLanguage
-
-# Rules for building the parser.
-
-ErrM.hs LexLanguage.x PrintLanguage.hs ParLanguage.y TestLanguage.hs : Language.cf
+LexLanguage.x ParLanguage.y : Language.cf
 	$(BNFC) --haskell Language.cf
+	-@rm DocLanguage.txt # Can't tell BNFC that I don't want it
 
 %.hs : %.y
 	$(HAPPY) --ghc --coerce --array $<
@@ -28,8 +29,10 @@ ErrM.hs LexLanguage.x PrintLanguage.hs ParLanguage.y TestLanguage.hs : Language.
 %.hs : %.x
 	$(ALEX) --ghc $<
 
-TestLanguage : TestLanguage.hs ErrM.hs LexLanguage.hs ParLanguage.hs PrintLanguage.hs
-	ghc --make $< -o $@
+language : Language.cf $(BNFC_TARGETS)
+
+interpreter : ./src/Main.hs
+	ghc --make -isrc src/Main.hs -odir obj -hidir interf -o $@
 
 package : clean all
 	-rm -rf $(PKGNAME)
@@ -43,6 +46,7 @@ package : clean all
 
 clean :
 	-rm -f *.hi *.o *.log *.aux *.dvi *.x *.y
-	-rm -f *.hs # for now.
+	-rm -f *.hs
+	-rm -rf obj/ interf/
 	-rm -f DocLanguage.txt
 	-rm -f TestLanguage
