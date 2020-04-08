@@ -20,7 +20,7 @@ export PKGNAME := mateusz_dudzinski
 all : interpreter
 
 LexLanguage.x ParLanguage.y : Language.cf
-	$(BNFC) --haskell Language.cf
+	$(BNFC) --functor --haskell Language.cf
 	-@rm DocLanguage.txt # Can't tell BNFC that I don't want it
 
 %.hs : %.y
@@ -32,7 +32,7 @@ LexLanguage.x ParLanguage.y : Language.cf
 language : Language.cf $(BNFC_TARGETS)
 
 interpreter : src/Main.hs
-	ghc --make -isrc src/Main.hs -odir obj -hidir interf -o $@
+	ghc -Wall --make -isrc src/Main.hs -odir obj -hidir interf -o $@
 
 package : clean all
 	-rm -rf $(PKGNAME)
@@ -49,4 +49,5 @@ clean :
 	-rm -f *.hs
 	-rm -rf obj/ interf/
 	-rm -f DocLanguage.txt
+	-rm -f TestLanguage.hs # not needed for now.
 	-rm -f TestLanguage

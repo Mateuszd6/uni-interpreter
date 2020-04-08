@@ -1,23 +1,23 @@
 -- TODO: Check imports.
-import System.IO ( stdin, hGetContents )
-import System.Environment ( getArgs, getProgName )
-import System.Exit ( exitFailure, exitSuccess )
-import Control.Monad (when)
-import Control.Applicative (Applicative(..), Alternative(..))
+import System.Exit (exitFailure, exitSuccess)
 import Control.Monad (liftM, ap)
 
-import qualified Data.HashMap.Strict as HMap
+import qualified Data.Map.Strict as Map
 
 import qualified AbsLanguage as Abs
-import ParLanguage
-import LexLanguage
+import qualified ParLanguage as Par (myLexer, pProgram)
+import LexLanguage (Token)
 import PrintLanguage
 import ErrM
 
-type ParseFun = [Token] -> Err Abs.Program
+parseProg :: [Token] -> Err Abs.Program
+parseProg = Par.pProgram
+
+lexProg :: String -> [Token]
+lexProg = Par.myLexer
 
 -- Aliases for commonly use maps:
-type VarMap = HMap.HMap String Var
+type VarMap = Map.Map String Var
 
 -- A struct is a map from field names to variables
 newtype Struct = Struct VarMap
@@ -32,17 +32,15 @@ data Var
 
 newtype ProgramState = ProgramState
   {
-    vars :: VarMap
+    psvars :: VarMap
   }
   deriving (Show)
 
 getVar :: VarMap -> String -> Maybe Var
-getVar vars name = HMap.lookup name vars
+getVar vars name = Map.lookup name vars
 
-myLLexer = myLexer
-
-runFile :: ParseFun -> FilePath -> IO ()
-runFile p f = putStrLn f >> readFile f >>= run p
+runFile :: FilePath -> IO ()
+runFile f = putStrLn f >> readFile f >>= run
 
 tempGetListOfStatements :: Abs.Program -> [Abs.Stmt]
 tempGetListOfStatements (Abs.Prog q) = q
@@ -53,7 +51,6 @@ test = foldr (\x acc -> (case x of
                            _ -> "No idea\n") ++ acc) ""
 
 -- MonadicMadness
-
 newtype State s a = State { runState :: (s -> (a, s)) }
 
 instance Monad (State s)
@@ -68,32 +65,34 @@ instance Applicative (State s) where
   pure  = return
   (<*>) = ap
 
-run :: ParseFun -> String -> IO ()
-run p s =
-  let
-    ts = myLLexer s
-  in
-    case p ts of
-      Bad s ->
-        do
-          putStrLn "\nParse Failed..."
-          putStrLn "\nTokens:\n"
-          putStrLn $ show ts
-          putStrLn s
-          exitFailure
-      Ok tree ->
-        do
-          putStrLn "\nParse Successful!"
-          showTree tree
-          putStrLn $ test $ tempGetListOfStatements tree
-          exitSuccess
-
+run :: String -> IO ()
+run s =
+  case parseProg $ lexProg s of
+    Bad errMsg -> do
+      putStrLn "\nParse Failed..."
+      putStrLn "\nTokens:\n"
+      putStrLn $ show $ lexProg s -- TODO: Don't repeat lex program!
+      putStrLn errMsg
+      exitFailure
+    Ok tree -> do
+      putStrLn "\nParse Successful!"
+      showTree tree
+      putStrLn $ test $ tempGetListOfStatements tree
+      exitSuccess
 
 showTree :: (Show a, Print a) => a -> IO ()
-showTree tree =
-  do
-    putStrLn $ "\n[Abstract Syntax]\n\n" ++ show tree
-    putStrLn $ "\n[Linearized tree]\n\n" ++ printTree tree
+showTree tree = do
+  putStrLn $ "\n[Abstract Syntax]\n\n" ++ show tree
+  putStrLn $ "\n[Linearized tree]\n\n" ++ printTree tree
+
+testmap :: VarMap
+testmap = foldl (\acc (x, y) -> Map.insert x y acc) Map.empty testvals
+
+testvals :: [(String, Var)]
+testvals = [("Var_1", VInt 1), ("Var_2", VInt 1), ("Var_3", VString "TestString")]
 
 main :: IO ()
-main = runFile pProgram "./docs/README.txt"
+main = do
+  -- runFile "./docs/README.txt"
+  -- putStrLn $ show (testmap :: VarMap)
+  putStrLn $ show $ getVar testmap "Var_1"
