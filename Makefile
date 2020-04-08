@@ -31,7 +31,7 @@ LexLanguage.x ParLanguage.y : Language.cf
 
 language : Language.cf $(BNFC_TARGETS)
 
-interpreter : ./src/Main.hs
+interpreter : src/Main.hs
 	ghc --make -isrc src/Main.hs -odir obj -hidir interf -o $@
 
 package : clean all
