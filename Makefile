@@ -1,7 +1,7 @@
 # use make language to generate all bnfc files.
 # use make interpreter (or just make / make all) to generate interpreter program.
 
-export WHERE := local
+export WHERE := students
 ifeq ($(WHERE),students)
 	export BNFC := /home/students/inf/PUBLIC/MRJP/bin/students/bnfc
 	export ALEX := alex
@@ -20,7 +20,7 @@ export PKGNAME := mateusz_dudzinski
 all : interpreter
 
 LexLanguage.x ParLanguage.y : Language.cf
-	$(BNFC) --haskell Language.cf
+	$(BNFC) --functor --haskell Language.cf
 	-@rm DocLanguage.txt # Can't tell BNFC that I don't want it
 
 %.hs : %.y

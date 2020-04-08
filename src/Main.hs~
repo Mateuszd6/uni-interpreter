@@ -17,7 +17,7 @@ import ErrM
 type ParseFun = [Token] -> Err Abs.Program
 
 -- Aliases for commonly use maps:
-type VarMap = HMap.HashMap String Var
+type VarMap = HMap.HMap String Var
 
 -- A struct is a map from field names to variables
 newtype Struct = Struct VarMap
