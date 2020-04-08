@@ -7,13 +7,14 @@ module ErrM where
 -- the Error monad: like Maybe type with error msgs
 
 import Control.Monad (MonadPlus(..), liftM)
-import Control.Applicative (Applicative(..), Alternative(..))
+import Control.Applicative (Alternative(..))
 
 data Err a = Ok a | Bad String
   deriving (Read, Show, Eq, Ord)
 
 instance Monad Err where
   return      = Ok
+  -- fail        = Bad -- TODO: Revive?
   Ok a  >>= f = f a
   Bad s >>= _ = Bad s
 
@@ -21,6 +22,7 @@ instance Applicative Err where
   pure = Ok
   (Bad s) <*> _ = Bad s
   (Ok f) <*> o  = liftM f o
+
 
 instance Functor Err where
   fmap = liftM

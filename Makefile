@@ -32,6 +32,7 @@ LexLanguage.x ParLanguage.y : Language.cf
 language : Language.cf $(BNFC_TARGETS)
 
 interpreter : src/Main.hs
+	# -XTypeSynonymInstances -XFlexibleInstances
 	ghc -Wall --make -isrc src/Main.hs -odir obj -hidir interf -o $@
 
 package : clean all
@@ -51,3 +52,4 @@ clean :
 	-rm -f DocLanguage.txt
 	-rm -f TestLanguage.hs # not needed for now.
 	-rm -f TestLanguage
+	-rm -f interpreter
