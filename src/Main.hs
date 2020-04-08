@@ -49,54 +49,129 @@ toListOfStmts :: Program a -> [Stmt a]
 toListOfStmts (Prog _ statements) = statements
 
 -- TODO: Move dump functions to separate file and move nTabs and indent funcs outside?
+data DumpState = DumpState
+  {
+    indent :: Int,
+    opened :: [Int]
+  }
 
-identToStr :: Ident -> String
-identToStr (Ident str) = ('\"' : str) ++ "\""
+dumpStateInitial :: DumpState
+dumpStateInitial = DumpState 0 []
 
-astDumpExpr :: Int -> Expr ParsingPos -> String
-astDumpExpr tabs expr = case expr of
-  _ -> indent ++ "unknown expression\n"
+astDumpIdent :: DumpState -> Ident -> String
+astDumpIdent state@(DumpState tabs opened) (Ident str) =
+  indent ++ "[\"" ++ str ++ "\"]\n"
   where
-    nTabs :: Int
-    nTabs = tabs + 1
+    advState :: DumpState
+    advState = state{ indent = tabs + 1, opened = tabs : opened }
+
+    advState' :: DumpState
+    advState' = state{ indent = tabs + 1, opened = opened }
+
+    indentImpl :: Int -> String
+    indentImpl i = (foldr (\i acc-> (if i `mod` 4 == 0 && (elem (i `div` 4) opened)
+                                     then '|' else ' '): acc)
+                     "" [0 .. (4 * (i - 1) - 1)])
+                   ++ (if i > 0 then branchCh ++ "───" else "")
 
     indent :: String
-    indent = replicate (tabs * 4) ' '
-
-astDumpStmt :: Int -> Stmt ParsingPos -> String
-astDumpStmt tabs stmt = case stmt of
-  SIf pPos cExpr cStmt ->
-    indent ++ "IF" ++ (fileLinum pPos) ++ nl ++
-    astDumpExpr nTabs cExpr ++
-    astDumpStmt nTabs cStmt
-  SIfElse pPos cExpr cStmt lStmt ->
-    indent ++ "IF-ELSE" ++ (fileLinum pPos) ++ nl ++
-    astDumpExpr nTabs cExpr ++
-    astDumpStmt nTabs cStmt ++
-    astDumpStmt nTabs lStmt
-  SFor pPos varName bExpr eExpr lstmt ->
-    indent ++ "FOR" ++ (fileLinum pPos) ++ nl ++
-    indent' ++ "VARIABLE: " ++ (identToStr varName) ++ nl ++
-    astDumpExpr nTabs bExpr ++
-    astDumpExpr nTabs eExpr ++
-    astDumpStmt nTabs lstmt
-  SWhile pPos cExpr lstmt ->
-    indent ++ "WHILE" ++ (fileLinum pPos) ++ nl ++
-    astDumpExpr nTabs cExpr ++
-    astDumpStmt nTabs lstmt
-  SExpr pPos expr ->
-    indent ++ "EXPR" ++ (fileLinum pPos) ++ nl ++
-    astDumpExpr nTabs expr
-  _ -> indent ++ "unknown statement\n"
-  where
-    nTabs :: Int
-    nTabs = tabs + 1
-
-    indent :: String
-    indent = replicate (4 * tabs) ' '
+    indent = indentImpl tabs
 
     indent' :: String
-    indent' = replicate (4 * nTabs) ' '
+    indent' = indentImpl $ tabs + 1
+
+    branchCh :: String
+    branchCh = if elem (tabs - 1) opened then "├" else "└"
+
+    nl :: String
+    nl = "\n"
+
+    fileLinum :: ParsingPos -> String
+    fileLinum pPos = " ./tests.txt:" ++ showLinCol pPos
+
+astDumpExpr :: DumpState -> Expr ParsingPos -> String
+astDumpExpr state@(DumpState tabs opened) expr = case expr of
+  _ -> indent ++ "[unknown expression]\n"
+  where
+    advState :: DumpState
+    advState = state{ indent = tabs + 1, opened = tabs : opened }
+
+    advState' :: DumpState
+    advState' = state{ indent = tabs + 1, opened = opened }
+
+    indentImpl :: Int -> String
+    indentImpl i = (foldr (\i acc-> (if i `mod` 4 == 0 && (elem (i `div` 4) opened)
+                                     then '|'
+                                     else ' '): acc)
+                     "" [0 .. (4 * (i - 1) - 1)])
+                   ++ (if i > 0 then branchCh ++ "───" else "")
+
+    indent :: String
+    indent = indentImpl tabs
+
+    indent' :: String
+    indent' = indentImpl $ tabs + 1
+
+    branchCh :: String
+    branchCh = if elem (tabs - 1) opened then "├" else "└"
+
+    nl :: String
+    nl = "\n"
+
+    fileLinum :: ParsingPos -> String
+    fileLinum pPos = " ./tests.txt:" ++ showLinCol pPos
+
+astDumpStmt :: DumpState -> Stmt ParsingPos -> String
+astDumpStmt state@(DumpState tabs opened) stmt = case stmt of
+  SIf pPos cExpr cStmt ->
+    indent ++ "[IF]" ++ (fileLinum pPos) ++ nl ++
+    astDumpExpr advState cExpr ++
+    astDumpStmt advState' cStmt
+  SIfElse pPos cExpr cStmt lStmt ->
+    indent ++ "[IF-ELSE]" ++ (fileLinum pPos) ++ nl ++
+    astDumpExpr advState cExpr ++
+    astDumpStmt advState cStmt ++
+    astDumpStmt advState' lStmt
+  SFor pPos varName bExpr eExpr lstmt ->
+    indent ++ "[FOR]" ++ (fileLinum pPos) ++ nl ++
+    astDumpIdent advState varName ++
+    astDumpExpr advState bExpr ++
+    astDumpExpr advState eExpr ++
+    astDumpStmt advState' lstmt
+  SWhile pPos cExpr lstmt ->
+    indent ++ "[WHILE]" ++ (fileLinum pPos) ++ nl ++
+    astDumpExpr advState cExpr ++
+    astDumpStmt advState' lstmt
+  SExpr pPos expr ->
+    indent ++ "[EXPR]" ++ (fileLinum pPos) ++ nl ++
+    astDumpExpr advState' expr
+  SVDecl pPos varDecl -> indent ++ "TODO\n"
+  SFDecl pPos name funDecl -> indent ++ "TODO\n"
+  SSDecl pPos name strcDecl -> indent ++ "TODO\n"
+  STDecl pPos tupleTarget exprOrTuple -> indent ++ "TODO\n"
+  _ -> indent ++ "[unknown statement]\n"
+  where
+    advState :: DumpState
+    advState = state{ indent = tabs + 1, opened = tabs : opened }
+
+    advState' :: DumpState
+    advState' = state{ indent = tabs + 1, opened = opened }
+
+    indentImpl :: Int -> String
+    indentImpl i = (foldr (\i acc-> (if i `mod` 4 == 0 && (elem (i `div` 4) opened)
+                                     then '|'
+                                     else ' '): acc)
+                     "" [0 .. (4 * (i - 1) - 1)])
+                   ++ (if i > 0 then branchCh ++ "───" else "")
+
+    indent :: String
+    indent = indentImpl tabs
+
+    indent' :: String
+    indent' = indentImpl $ tabs + 1
+
+    branchCh :: String
+    branchCh = if elem (tabs - 1) opened then "├" else "└"
 
     nl :: String
     nl = "\n"
@@ -120,7 +195,7 @@ run s = let ts = lexProg s in case parseProg ts of
              -- showTree tree
              -- putStrLn $ "\npos: " ++ (show tree)
              putStrLn $ "\nNum statements: " ++ (show $ length $ toListOfStmts tree)
-             putStr $ foldr (++) "" $ map (astDumpStmt 0) (toListOfStmts tree)
+             putStr $ foldr (++) "" $ map (astDumpStmt dumpStateInitial) (toListOfStmts tree)
              -- forM_ (toListOfStmts tree) evalStmt
              exitSuccess
 
