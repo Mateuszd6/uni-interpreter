@@ -1,7 +1,13 @@
+1 + 2;
+3;
+4 - 4;
+foobar();
+
+
 if (foo())
    if (bar() != false)
    {
-	x := 3;
+        x := 3;
    }
 
 // The contents of this file should be (more or less) equivalent to README.pdf,
