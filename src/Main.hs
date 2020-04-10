@@ -39,7 +39,8 @@ data ScopeNames = ScopeNames
   deriving (Show)
 
 data Var
-  = VInt Int
+  = VEmpty
+  | VInt Int
   | VBool Bool
   | VString String
   | VStruct { vStructTId :: Int, vStructVars :: (Map.Map String Var) }
@@ -60,10 +61,16 @@ data State = State
 -- typeId is used to determine variable type. We can't use name becasue TODO:
 -- explain.
 varGetTypeId :: Var -> Int
+varGetTypeId VEmpty = 0 -- TODO: possibly use Maybe instead?
 varGetTypeId (VInt _) = 1 -- Permitive types have constant typeids.
 varGetTypeId (VBool _) = 2
 varGetTypeId (VString _) = 3
 varGetTypeId (VStruct sId _) = sId -- Structs know their typeids.
+
+-- TODO: produce more or refactor.
+ofTypeInt :: Var -> Err Int
+ofTypeInt (VInt v) = Ok v
+ofTypeInt _ = Error TypeError
 
 -- parseProg :: [Token] -> Err (Program ParsingPos)
 -- parseProg = Par.pProgram
@@ -94,13 +101,39 @@ getPos (SBlock pos _ _) = pos
 toListOfStmts :: Program a -> [Stmt a]
 toListOfStmts (Prog _ statements) = statements
 
-evalExpr :: Expr ParsingPos -> State -> IO ()
-evalExpr expr _ = putStrLn $ ("tests.txt:" ++ (showLinCol $ Nothing)
-                              ++ " evaluating expression:\n  " ++ show expr)
+addErr :: Err Int -> Err Int -> Err Int
+addErr (Ok a) (Ok b) = Ok $ a + b
+addErr _ _ = Bad "Should not happen"
 
-evalStmt :: Stmt ParsingPos -> State -> IO ()
-evalStmt (SExpr _ (expr)) _ = evalExpr expr undefined
-evalStmt stmt _ = putStrLn $ "tests.txt:" ++ (showLinCol $ getPos stmt) ++ " evaluating statement."
+evalExpr :: Expr ParsingPos -> State -> IO (Var, State)
+
+evalExpr (EInt _ intVal) st = do
+  let (res, st') = (VInt $ fromInteger intVal, st)
+  putStrLn $ "Evaluated integer of value: " ++ show intVal
+  return (res, st')
+
+evalExpr (EPlus _ lhs rhs) st = do
+  (evaledL, st') <- evalExpr lhs st
+  (evaledR, st'') <- evalExpr rhs st'
+  let l1 = ofTypeInt evaledL
+  let l2 = ofTypeInt evaledR
+
+  putStrLn $ ("Should add two expressions:\n  "
+              ++ show evaledL ++ "\n  "
+              ++ show evaledR ++ "\n  "
+              ++ "which gives: " ++ (show $ addErr l1 l2))
+  return (VInt 99, st'')
+
+evalExpr expr s = do
+  putStrLn $ "tests.txt:" ++ (showLinCol $ Nothing)
+              ++ " evaluating expression:\n  " ++ show expr
+  return (VEmpty, s)
+
+
+evalStmt :: Stmt ParsingPos -> State -> IO () -- TODO: IO State
+evalStmt (SExpr _ (expr)) _ = evalExpr expr undefined >> return ()
+evalStmt stmt _ = putStrLn $ ("tests.txt:" ++ (showLinCol $ getPos stmt)
+                              ++ " evaluating statement.")
 
 run :: String -> IO ()
 run s = case parseProgram s of
