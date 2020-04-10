@@ -4,12 +4,14 @@
 module Error where
 
 import Control.Monad (liftM)
-import Control.Monad.Trans.Class (lift, MonadTrans)
+import Control.Monad.Trans.Class (lift, MonadTrans(..))
 
 data ErrorDetail
   = ParsingError String
-  | YouSuckError Int
-  | HaskellIsStupidError String
+  | TypeError
+  | SuperBadErrorThatBasicallyShouldNotHappen String -- TODO
+  | YouSuckError Int -- TODO
+  | HaskellIsStupidError String -- TODO
   deriving (Show)
 
 data Error a

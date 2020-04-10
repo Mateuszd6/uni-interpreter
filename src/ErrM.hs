@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-unused-imports #-}
+
 -- BNF Converter: Error Monad
 -- Copyright (C) 2004  Author:  Aarne Ranta
 
@@ -7,31 +9,20 @@ module ErrM where
 -- the Error monad: like Maybe type with error msgs
 
 import Control.Monad (MonadPlus(..), liftM)
-import Control.Applicative (Alternative(..))
+import Control.Applicative (Applicative(..), Alternative(..))
 
-data ErrorDescr
-  = TypeError
-  | RuntimeError
-  | FuckHaskellError -- TODO: Just make sure to remove it.
-  deriving (Read, Show, Eq, Ord)
-
--- Bad is kept for compatibility with Happy parser
-data Err a = Ok a | Bad String | Error ErrorDescr --  | Error String -- TODO: It turns out it can be adjusted
+data Err a = Ok a | Bad String
   deriving (Read, Show, Eq, Ord)
 
 instance Monad Err where
   return      = Ok
-  -- fail        = Bad -- TODO: Revive?
   Ok a  >>= f = f a
   Bad s >>= _ = Bad s
-  Error x >>= _ = Error x
-  -- Error s >>= _ = Error s
 
 instance Applicative Err where
   pure = Ok
-  (Ok f) <*> o  = liftM f o
   (Bad s) <*> _ = Bad s
-  (Error s) <*> _ = Error s
+  (Ok f) <*> o  = liftM f o
 
 instance Functor Err where
   fmap = liftM

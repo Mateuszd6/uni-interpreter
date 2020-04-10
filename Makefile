@@ -6,33 +6,33 @@ ifeq ($(WHERE),students)
 	export BNFC := /home/students/inf/PUBLIC/MRJP/bin/students/bnfc
 	export ALEX := alex
 	export HAPPY := happy
+	export GHC := ghc
 else
 	export BNFC := $(HOME)/.cabal/bin/bnfc
 	export ALEX := $(HOME)/.cabal/bin/alex
 	export HAPPY := $(HOME)/.cabal/bin/happy
+	export GHC := ghc
 endif
-
-export BNFC_TARGETS := LexLanguage.hs ParLanguage.hs AbsLanguage.hs SkelLanguage.hs PrintLanguage.hs ErrM.hs
 
 export PKGNAME := mateusz_dudzinski
 
 .PHONY : all interpreter language clean package
 all : interpreter
 
-LexLanguage.x ParLanguage.y : Language.cf
+language :
+	# Just rebuild everything - this has to be called manyally with
+	# 'make language' and probably will cause a buld break, because you need
+	# super special version of bnfc to generate a line numbers.
 	$(BNFC) --functor --haskell Language.cf
-	-@rm DocLanguage.txt # Can't tell BNFC that I don't want it
+	$(ALEX) --ghc LexLanguage.x
+	$(HAPPY) --ghc --coerce --array ParLanguage.y
 
-%.hs : %.y
-	$(HAPPY) --ghc --coerce --array $<
-
-%.hs : %.x
-	$(ALEX) --ghc $<
-
-language : Language.cf $(BNFC_TARGETS)
+	# Can't tell BNFC that I don't want these:
+	-rm -f DocLanguage.txt PrintLanguage.hs SkelLanguage.hs TestLanguage.hs
+	-mv -f AbsLanguage.hs ErrM.hs LexLanguage.hs ParLanguage.hs ./src
 
 interpreter : src/Main.hs
-	ghc -Wall --make -isrc src/Main.hs -odir obj -hidir interf -o $@
+	$(GHC) -Wall --make -isrc src/Main.hs -odir obj -hidir obj -o $@
 
 package : clean all
 	-rm -rf $(PKGNAME)
@@ -46,9 +46,5 @@ package : clean all
 
 clean :
 	-rm -f *.hi *.o *.log *.aux *.dvi *.x *.y
-	-rm -f *.hs
 	-rm -rf obj/ interf/
-	-rm -f DocLanguage.txt
-	-rm -f TestLanguage.hs # not needed for now.
-	-rm -f TestLanguage
 	-rm -f interpreter

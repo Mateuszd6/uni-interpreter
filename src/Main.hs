@@ -11,9 +11,7 @@ import Control.Monad (forM_)
 
 import AbsLanguage as Abs -- TODO: Qualify
 
-import ErrM
 import Error
-
 import Parser
 
 type ParsingPos = Maybe (Int, Int)
@@ -65,13 +63,12 @@ varGetTypeId (VString _) = 3
 varGetTypeId (VStruct sId _) = sId -- Structs know their typeids.
 
 -- TODO: produce more or refactor.
-ofTypeInt :: Err Var -> Err Int
-ofTypeInt (Ok (VInt v)) = Ok v
-ofTypeInt (Ok _) = Error TypeError
-ofTypeInt (Bad b) = Bad b
-ofTypeInt (Error b) = Error b
+ofTypeInt :: Error Var -> Error Int
+ofTypeInt (Ok_ (VInt v)) = Ok_ v
+ofTypeInt (Ok_ _) = Fail_ TypeError
+ofTypeInt (Fail_ reason) = Fail_ reason
 
--- parseProg :: [Token] -> Err (Program ParsingPos)
+-- parseProg :: [Token] -> Error (Program ParsingPos)
 -- parseProg = Par.pProgram
 -- lexProg :: String -> [Token]
 -- lexProg = Par.myLexer
@@ -100,16 +97,16 @@ getPos (SBlock pos _ _) = pos
 toListOfStmts :: Program a -> [Stmt a]
 toListOfStmts (Prog _ statements) = statements
 
-addErr :: Err Int -> Err Int -> Err Var
-addErr (Ok a) (Ok b) = Ok $ VInt $ a + b
-addErr _ _ = Bad "Should not happen"
+addError :: Error Int -> Error Int -> Error Var
+addError (Ok_ a) (Ok_ b) = Ok_ $ VInt $ a + b
+addError _ _ = Fail_ $ SuperBadErrorThatBasicallyShouldNotHappen "Should not happen"
 
-evalExpr :: Expr ParsingPos -> State -> IO (Err Var, State)
+evalExpr :: Expr ParsingPos -> State -> IO (Error Var, State)
 
 evalExpr (EInt _ intVal) st = do
   let (res, st') = (VInt $ fromInteger intVal, st)
   putStrLn $ "Evaluated integer of value: " ++ show intVal
-  return $ (Ok res, st')
+  return $ (Ok_ res, st')
 
 evalExpr (EPlus _ lhs rhs) st = do
   (evaledL, st') <- evalExpr lhs st
@@ -120,13 +117,13 @@ evalExpr (EPlus _ lhs rhs) st = do
   putStrLn $ ("Should add two expressions:\n  "
               ++ show evaledL ++ "\n  "
               ++ show evaledR ++ "\n  "
-              ++ "which gives: " ++ (show $ addErr l1 l2))
-  return (addErr l1 l2, st'')
+              ++ "which gives: " ++ (show $ addError l1 l2))
+  return (addError l1 l2, st'')
 
 evalExpr expr s = do
   putStrLn $ "tests.txt:" ++ (showLinCol $ Nothing)
               ++ " evaluating expression:\n  " ++ show expr
-  return (Ok VEmpty, s)
+  return (Ok_ VEmpty, s)
 
 
 evalStmt :: Stmt ParsingPos -> State -> IO () -- TODO: IO State
