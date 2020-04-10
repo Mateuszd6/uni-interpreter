@@ -10,8 +10,7 @@ import Control.Monad (MonadPlus(..), liftM)
 import Control.Applicative (Alternative(..))
 
 data ErrorDescr
-  = ParsingError
-  | TypeError
+  = TypeError
   | RuntimeError
   | FuckHaskellError -- TODO: Just make sure to remove it.
   deriving (Read, Show, Eq, Ord)

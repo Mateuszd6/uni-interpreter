@@ -3,21 +3,18 @@ module Main where
 
 import qualified Data.Map as Map
 
+-- TODO: Qualify imports
 import System.IO ()
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import Control.Monad (forM_)
 
-import qualified ParLanguage as Par
 import AbsLanguage as Abs -- TODO: Qualify
--- import PrintLanguage
 
 import ErrM
+import Error
 
--- Do lexing, then parsing. Lexing can't fail and by combing these functions we
--- don't have to include LexLanguage in this file.
-parseProgram :: String -> Err (Program ParsingPos)
-parseProgram = Par.pProgram . Par.myLexer
+import Parser
 
 type ParsingPos = Maybe (Int, Int)
 
@@ -68,9 +65,11 @@ varGetTypeId (VString _) = 3
 varGetTypeId (VStruct sId _) = sId -- Structs know their typeids.
 
 -- TODO: produce more or refactor.
-ofTypeInt :: Var -> Err Int
-ofTypeInt (VInt v) = Ok v
-ofTypeInt _ = Error TypeError
+ofTypeInt :: Err Var -> Err Int
+ofTypeInt (Ok (VInt v)) = Ok v
+ofTypeInt (Ok _) = Error TypeError
+ofTypeInt (Bad b) = Bad b
+ofTypeInt (Error b) = Error b
 
 -- parseProg :: [Token] -> Err (Program ParsingPos)
 -- parseProg = Par.pProgram
@@ -101,16 +100,16 @@ getPos (SBlock pos _ _) = pos
 toListOfStmts :: Program a -> [Stmt a]
 toListOfStmts (Prog _ statements) = statements
 
-addErr :: Err Int -> Err Int -> Err Int
-addErr (Ok a) (Ok b) = Ok $ a + b
+addErr :: Err Int -> Err Int -> Err Var
+addErr (Ok a) (Ok b) = Ok $ VInt $ a + b
 addErr _ _ = Bad "Should not happen"
 
-evalExpr :: Expr ParsingPos -> State -> IO (Var, State)
+evalExpr :: Expr ParsingPos -> State -> IO (Err Var, State)
 
 evalExpr (EInt _ intVal) st = do
   let (res, st') = (VInt $ fromInteger intVal, st)
   putStrLn $ "Evaluated integer of value: " ++ show intVal
-  return (res, st')
+  return $ (Ok res, st')
 
 evalExpr (EPlus _ lhs rhs) st = do
   (evaledL, st') <- evalExpr lhs st
@@ -122,12 +121,12 @@ evalExpr (EPlus _ lhs rhs) st = do
               ++ show evaledL ++ "\n  "
               ++ show evaledR ++ "\n  "
               ++ "which gives: " ++ (show $ addErr l1 l2))
-  return (VInt 99, st'')
+  return (addErr l1 l2, st'')
 
 evalExpr expr s = do
   putStrLn $ "tests.txt:" ++ (showLinCol $ Nothing)
               ++ " evaluating expression:\n  " ++ show expr
-  return (VEmpty, s)
+  return (Ok VEmpty, s)
 
 
 evalStmt :: Stmt ParsingPos -> State -> IO () -- TODO: IO State
@@ -136,14 +135,12 @@ evalStmt stmt _ = putStrLn $ ("tests.txt:" ++ (showLinCol $ getPos stmt)
                               ++ " evaluating statement.")
 
 run :: String -> IO ()
-run s = case parseProgram s of
-          Bad errMsg -> do
-            putStrLn "\nParse              Failed...\n"
-            putStrLn "Tokens:"
-            -- putStrLn $ show ts
-            putStrLn $ "Message: " ++ errMsg
+run pText = case parseProgram pText of
+          Fail_ detail -> do
+            putStrLn "\nParse Failed...\n"
+            putStrLn $ "Message: " ++ show detail
             exitFailure
-          Ok tree -> do
+          Ok_ tree -> do
             putStrLn "Parse Successful!"
             -- putStrLn $ printTree tree
             -- putStrLn $ "\npos: " ++ (show tree)
