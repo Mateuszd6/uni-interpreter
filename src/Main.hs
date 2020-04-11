@@ -86,7 +86,7 @@ ofTypeString (VString v) = Ok_ v
 ofTypeString _ = Fail_ TypeError
 
 ofTypeString_ :: (Var, State) -> ErrorT IO (String, State)
-ofTypeString_ ((VString str), s) = ErrorT $ return $ Ok_ (str, s)
+ofTypeString_ (VString str, s) = ErrorT $ return $ Ok_ (str, s)
 ofTypeString_ (_, _) = ErrorT $ return $ Fail_ TypeError -- TODO: Include state
                                                          -- for dump info?
 
@@ -219,19 +219,26 @@ evalStmt stmt st = do
   return st { counter = counter st + 1 }
 
 run :: String -> IO ()
-run pText = case parseProgram pText of
-          Fail_ detail -> do
-            putStrLn "\nParse Failed...\n"
-            putStrLn $ "Message: " ++ show detail
-            exitFailure
-          Ok_ tree -> do
-            putStrLn "Parse Successful!"
-            -- putStrLn $ printTree tree
-            -- putStrLn $ "\npos: " ++ (show tree)
-            putStrLn $ "\nNum statements: " ++ show (length $ toListOfStmts tree)
-            -- putStr $ foldr (++) "" $ map (astDumpStmt dumpStateInitial) (toListOfStmts tree)
-            _ <- runErrorT $ foldM (\acc x -> evalStmt x acc) tempDefaultState (toListOfStmts tree)
-            exitSuccess
+run pText = do
+  let x = toListOfStmts <$> parseProgram pText
+  print x
+
+--runErrorT $ tutu pText
+
+  -- case parseProgram pText of
+          -- Fail_ detail -> do
+            -- putStrLn "\nParse Failed...\n"
+            -- putStrLn $ "Message: " ++ show detail
+            -- exitFailure
+          -- Ok_ tree -> do
+            -- putStrLn "Parse Successful!"
+            -- -- putStrLn $ printTree tree
+            -- -- putStrLn $ "\npos: " ++ (show tree)
+            -- putStrLn $ "\nNum statements: " ++ show (length $ toListOfStmts tree)
+            -- -- putStr $ foldr (++) "" $ map (astDumpStmt dumpStateInitial) (toListOfStmts tree)
+            -- -- TODO: alt: (\acc x -> evalStmt x acc)
+            -- _ <- runErrorT $ foldM (flip evalStmt) tempDefaultState (toListOfStmts tree)
+            -- exitSuccess
 
 usage :: IO ()
 usage = do
