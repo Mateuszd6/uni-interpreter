@@ -8,10 +8,8 @@ import Control.Monad.Trans.Class (lift, MonadTrans(..))
 
 data ErrorDetail
   = ParsingError String
-  | TypeError
-  | SuperBadErrorThatBasicallyShouldNotHappen String -- TODO
-  | YouSuckError Int -- TODO
-  | HaskellIsStupidError String -- TODO
+  | TypeError -- TOOD: refactor
+  | NotImplemented String -- TODO? This should not happen in the final version
   deriving (Show)
 
 data Error a

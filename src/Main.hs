@@ -5,7 +5,7 @@ import qualified Data.Map as Map
 
 -- TODO: Qualify imports
 import System.IO ()
-import System.Environment (getArgs)
+-- import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import Control.Monad (forM_)
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
@@ -70,10 +70,14 @@ varGetTypeId (VString _) = 3
 varGetTypeId (VStruct sId _) = sId -- Structs know their typeids.
 
 -- TODO: produce more or refactor.
-ofTypeInt :: Error Var -> Error Int
-ofTypeInt (Ok_ (VInt v)) = Ok_ v
-ofTypeInt (Ok_ _) = Fail_ TypeError
-ofTypeInt (Fail_ reason) = Fail_ reason
+ofTypeInt :: Var -> Error Int
+ofTypeInt (VInt v) = Ok_ v
+ofTypeInt _ = Fail_ TypeError
+
+-- TODO: Refactor or kill
+ofTypeInt_ :: (Var, State) -> ErrorT IO (Int, State)
+ofTypeInt_ ((VInt v), s) = ErrorT $ return $ Ok_ (v, s)
+ofTypeInt_ (_, s) = ErrorT $ return $ Fail_ TypeError
 
 -- parseProg :: [Token] -> Error (Program ParsingPos)
 -- parseProg = Par.pProgram
@@ -106,17 +110,52 @@ toListOfStmts (Prog _ statements) = statements
 
 addError :: Error Int -> Error Int -> Error Var
 addError (Ok_ a) (Ok_ b) = Ok_ $ VInt $ a + b
-addError _ _ = Fail_ $ SuperBadErrorThatBasicallyShouldNotHappen "Should not happen"
+addError _ _ = Fail_ $ TypeError -- "Should not happen"
 
-evalExpr :: Expr ParsingPos -> ErrorT IO (State -> (Var, State))
+-- TODO: Pass pasring pos.
 
--- evalExpr expr = ErrorT $
+-- Evaluates integer binary expresion parametrized by the expression func.
+evalIntExpr :: (Int -> Int -> Int) ->
+               ParsingPos -> Expr ParsingPos -> Expr ParsingPos -> State ->
+               ErrorT IO (Var, State)
+
+evalIntExpr func _ lhs rhs st = do
+  (evaledL, st') <- (evalExpr lhs st) >>= ofTypeInt_
+  lift $ print evaledL
+
+  (evaledR, st'') <- (evalExpr rhs st') >>= ofTypeInt_
+  lift $ print evaledR
+
+  lift $ putStrLn $ "returning value of: " ++ (show $ evaledL + evaledR)
+  return (VInt $ evaledL `func` evaledR, st'')
+
+evalExpr :: Expr ParsingPos -> State -> ErrorT IO (Var, State)
+
+-- New try:
+evalExpr (EInt _ intVal) st = do
+  let (res, st') = (VInt $ fromInteger intVal, st)
+  lift $ putStrLn $ "Evaluated integer of value: " ++ show intVal
+  return (res, st')
+
+evalExpr (EPlus p lhs rhs) st = evalIntExpr (+) p lhs rhs st
+evalExpr (EMinus p lhs rhs) st = evalIntExpr (-) p lhs rhs st
+evalExpr (ETimes p lhs rhs) st = evalIntExpr (*) p lhs rhs st
+evalExpr (EDiv p lhs rhs) st = evalIntExpr div p lhs rhs st -- TODO: Double check that
+evalExpr (EPow p lhs rhs) st = evalIntExpr (^) p lhs rhs st
+
+evalExpr _ _ = ErrorT $
+  return $ Fail_ $ NotImplemented "This is madness"
+
+
+-- Old:
+
+-- evalExpr expr s = ErrorT $
   -- return $ Fail_ $ SuperBadErrorThatBasicallyShouldNotHappen "This is madness"
 
-evalExpr expr = do
-  lift $ putStrLn $ ("tests.txt:" ++ (showLinCol Nothing)
-                     ++ " evaluating expression:\n  " ++ (show expr))
-  return $ \s -> (VEmpty, s)
+-- evalExpr expr s = do
+  -- lift $ putStrLn $ ("tests.txt:" ++ (showLinCol Nothing)
+                     -- ++ " evaluating expression:\n  " ++ (show expr))
+  -- return $ (VEmpty, s)
 
 
 -- evalExpr (EInt _ intVal) st = do
@@ -141,7 +180,7 @@ evalExpr expr = do
               -- ++ " evaluating expression:\n  " ++ show expr
   -- return (Ok_ VEmpty, s)
 
-evalExpr _ = undefined
+-- evalExpr _ _ = undefined
 
 evalStmt :: Stmt ParsingPos -> State -> IO () -- TODO: IO State
 evalStmt (SExpr _ expr) _ = undefined -- evalExpr expr undefined >> return ()
@@ -176,15 +215,21 @@ usage = do
 
 main :: IO ()
 main = do
-  x <- runErrorT $ evalExpr (EInt Nothing 3)
-  print (x <*> (Ok_ tempDefaultState))
+  -- Easy part:
+  x <- runErrorT $ evalExpr (EInt Nothing 3) tempDefaultState
+  print x
 
-  foobar <- runErrorT $ do
-    (q, w) <- (\z -> z tempDefaultState) <$> x
-    return (q, w)
-  case foobar of
-    Fail_ descr -> putStrLn $ "Error occured"
-    Ok_ (q, w) -> putStrLn $ show $ (q, w)
+  -- Hard part:
+  -- y <- runErrorT $ evalExpr (EPlus Nothing (EInt Nothing 3) (EBool Nothing (BTrue Nothing))) tempDefaultState
+  y <- runErrorT $ evalExpr (EPlus Nothing (EInt Nothing 3) (EInt Nothing 8)) tempDefaultState
+  print y
+
+  -- foobar <- runErrorT $ do
+    -- (q, w) <- (\z -> z tempDefaultState) <$> x
+    -- return (q, w)
+  -- case foobar of
+    -- Fail_ descr -> putStrLn $ "Error occured"
+    -- Ok_ (q, w) -> putStrLn $ show $ (q, w)
 
 
   -- y <- runErrorT $ (evalExpr (EInt Nothing 3) >>= (\z -> z tempDefaultState))
