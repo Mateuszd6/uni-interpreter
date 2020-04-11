@@ -1,5 +1,7 @@
--- | TODO: Describe and disclaim that it is MaybeT copied from haskell standard
---   libarry
+-- | Generalized Error Monad (including Monad Transform) to combine error
+--   handling with with IO. This features an ErrorDetail type which allows us to
+--   give user many detailed information about an error. This is laregly taken
+--   from MaybeT implementation in the Haskell standard library.
 module Error where
 
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
@@ -65,3 +67,7 @@ instance (Functor m, Monad m) => Applicative (ErrorT m) where
                   Ok x  -> return (Ok (f x))
 
   m *> k = m >> k -- TODO(MD): Invesitgate
+
+-- | Used to promote regular Error into ErrorT with any wrapped monad.
+toErrorT :: Monad m => Error a -> ErrorT m a
+toErrorT = ErrorT . return
