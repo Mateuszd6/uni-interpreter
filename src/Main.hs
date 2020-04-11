@@ -218,27 +218,33 @@ evalStmt stmt st = do
                     ++ show (counter st))
   return st { counter = counter st + 1 }
 
+-- Evaluate program in initial state.
+runProgram :: Program PPos -> ErrorT IO ()
+runProgram (Prog _ statements) =
+  -- TODO: Should use foldM_ to discard the result
+  foldM (flip evalStmt) tempDefaultState statements >> return ()
+
+convertToErrorT :: Error a -> ErrorT IO a
+convertToErrorT x = ErrorT $ return $ x
+
+foo :: String -> IO (Error ())
+foo pText = do
+  -- maybeCreds <- runErrorT $ do
+    -- usr <- readUserName
+    -- email <- readEmail
+    -- pass <- readPassword
+    -- return (usr, email, pass)
+  -- case maybeCreds of
+    -- Nothing -> print "Couldn't login!"
+    -- Just (u, e, p) -> login u e p
+  runErrorT $ (convertToErrorT (parseProgram pText) >>= runProgram)
+
 run :: String -> IO ()
 run pText = do
-  let x = toListOfStmts <$> parseProgram pText
-  print x
-
---runErrorT $ tutu pText
-
-  -- case parseProgram pText of
-          -- Fail_ detail -> do
-            -- putStrLn "\nParse Failed...\n"
-            -- putStrLn $ "Message: " ++ show detail
-            -- exitFailure
-          -- Ok_ tree -> do
-            -- putStrLn "Parse Successful!"
-            -- -- putStrLn $ printTree tree
-            -- -- putStrLn $ "\npos: " ++ (show tree)
-            -- putStrLn $ "\nNum statements: " ++ show (length $ toListOfStmts tree)
-            -- -- putStr $ foldr (++) "" $ map (astDumpStmt dumpStateInitial) (toListOfStmts tree)
-            -- -- TODO: alt: (\acc x -> evalStmt x acc)
-            -- _ <- runErrorT $ foldM (flip evalStmt) tempDefaultState (toListOfStmts tree)
-            -- exitSuccess
+  x <- foo pText
+  case x of
+    Ok_ _ -> exitSuccess
+    Fail_ reason -> (putStrLn $ ("ERROR: " ++ show reason)) >> exitFailure
 
 usage :: IO ()
 usage = do
