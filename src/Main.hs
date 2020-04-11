@@ -109,12 +109,12 @@ toListOfStmts (Prog _ statements) = statements
 -- Evaluates integer binary expresion parametrized by the expression func.
 -- TODO: Show iface is needed only for debug, but is fullfiled for our use
 evalBinaryExpr :: (Show a, Show r) =>
-                  (Var -> Error a) ->
-                  (a -> a -> r) ->
-                  (r -> Var) ->
+                  (Var -> Error a) -> -- Convert Var to desired type.
+                  (a -> a -> r) -> -- Func performed on wrapped value.
+                  (r -> Var) -> -- Ctor that wraps computed value back to Var.
                   PPos ->
-                  Expr PPos ->
-                  Expr PPos ->
+                  Expr PPos -> -- LHS expression.
+                  Expr PPos -> -- RHS expression.
                   State ->
                   ErrorT IO (Var, State)
 
@@ -198,7 +198,7 @@ run :: String -> IO ()
 run pText = do
   -- This allows us to handle any kind of error in one place. Whether it's a
   -- parsing error, type error or any kind of an execution error.
-  result <- runErrorT $ ((toErrorT $ parseProgram pText) >>= runProgram)
+  result <- runErrorT (toErrorT (parseProgram pText) >>= runProgram)
   case result of
     Ok () -> exitSuccess
     Fail reason -> putStrLn ("ERROR: " ++ show reason) >> exitFailure
