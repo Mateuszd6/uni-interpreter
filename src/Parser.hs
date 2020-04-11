@@ -12,6 +12,7 @@ import AbsLanguage
 import ErrM -- Error monad used by BNFC and ParLanguage. We keep it's use to its
             -- file so that it does not appear in the main code.
 
+-- TODO: describe that it is a parsing position.
 type PPos = Maybe (Int, Int)
 
 -- Do lexing, then parsing. Lexing can't fail and by combing these functions we

@@ -7,7 +7,7 @@ import qualified Data.Map as Map
 import System.IO ()
 -- import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
-import Control.Monad (forM_)
+import Control.Monad (foldM)
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
 
 import AbsLanguage as Abs -- TODO: Qualify
@@ -47,6 +47,7 @@ data Var
 
 data State = State
   {
+    counter :: Int,
     stateNames :: ScopeNames,
     stateVars :: Map.Map VarId Var,
     stateFuncs :: Map.Map FunId (Stmt ParsingPos, ScopeNames) -- TODO: make a type instead of using pair?
@@ -58,7 +59,7 @@ data State = State
 tempDefaultScopeNames :: ScopeNames
 tempDefaultScopeNames = ScopeNames Map.empty Map.empty Map.empty
 tempDefaultState :: State
-tempDefaultState = State tempDefaultScopeNames Map.empty Map.empty
+tempDefaultState = State 0 tempDefaultScopeNames Map.empty Map.empty
 
 -- typeId is used to determine variable type. We can't use name becasue TODO:
 -- explain.
@@ -76,8 +77,8 @@ ofTypeInt _ = Fail_ TypeError
 
 -- TODO: Refactor or kill
 ofTypeInt_ :: (Var, State) -> ErrorT IO (Int, State)
-ofTypeInt_ ((VInt v), s) = ErrorT $ return $ Ok_ (v, s)
-ofTypeInt_ (_, s) = ErrorT $ return $ Fail_ TypeError -- TODO: Include state for dump info?
+ofTypeInt_ (VInt v, s) = ErrorT $ return $ Ok_ (v, s)
+ofTypeInt_ (_, _) = ErrorT $ return $ Fail_ TypeError -- TODO: Include state for dump info?
 
 -- TODO: produce more or refactor.
 ofTypeString :: Var -> Error String
@@ -86,7 +87,8 @@ ofTypeString _ = Fail_ TypeError
 
 ofTypeString_ :: (Var, State) -> ErrorT IO (String, State)
 ofTypeString_ ((VString str), s) = ErrorT $ return $ Ok_ (str, s)
-ofTypeString_ (_, s) = ErrorT $ return $ Fail_ TypeError -- TODO: Include state for dump info?
+ofTypeString_ (_, _) = ErrorT $ return $ Fail_ TypeError -- TODO: Include state
+                                                         -- for dump info?
 
 -- parseProg :: [Token] -> Error (Program ParsingPos)
 -- parseProg = Par.pProgram
@@ -117,10 +119,6 @@ getPos (SBlock pos _ _) = pos
 toListOfStmts :: Program a -> [Stmt a]
 toListOfStmts (Prog _ statements) = statements
 
-addError :: Error Int -> Error Int -> Error Var
-addError (Ok_ a) (Ok_ b) = Ok_ $ VInt $ a + b
-addError _ _ = Fail_ $ TypeError -- "Should not happen"
-
 -- TODO: Pass pasring pos.
 
 -- Evaluates integer binary expresion parametrized by the expression func.
@@ -129,13 +127,13 @@ evalIntExpr :: (Int -> Int -> Int) ->
                ErrorT IO (Var, State)
 
 evalIntExpr func _ lhs rhs st = do
-  (evaledL, st') <- (evalExpr lhs st) >>= ofTypeInt_
+  (evaledL, st') <- evalExpr lhs st >>= ofTypeInt_
   lift $ print evaledL
 
-  (evaledR, st'') <- (evalExpr rhs st') >>= ofTypeInt_
+  (evaledR, st'') <- evalExpr rhs st' >>= ofTypeInt_
   lift $ print evaledR
 
-  lift $ putStrLn $ "returning value of: " ++ (show $ evaledL + evaledR)
+  lift $ putStrLn $ "returning value of: " ++ show (evaledL + evaledR)
   return (VInt $ evaledL `func` evaledR, st'')
 
 evalExpr :: Expr ParsingPos -> State -> ErrorT IO (Var, State)
@@ -163,14 +161,14 @@ evalExpr (ETimes p lhs rhs) st = evalIntExpr (*) p lhs rhs st
 evalExpr (EDiv p lhs rhs) st = evalIntExpr div p lhs rhs st -- TODO: Double check that
 evalExpr (EPow p lhs rhs) st = evalIntExpr (^) p lhs rhs st
 
-evalExpr (ECat p lhs rhs) st = do
-  (evaledL, st') <- (evalExpr lhs st) >>= ofTypeString_
+evalExpr (ECat _ lhs rhs) st = do
+  (evaledL, st') <- evalExpr lhs st >>= ofTypeString_
   lift $ print evaledL
 
-  (evaledR, st'') <- (evalExpr rhs st') >>= ofTypeString_
+  (evaledR, st'') <- evalExpr rhs st' >>= ofTypeString_
   lift $ print evaledR
 
-  lift $ putStrLn $ "returning value of: " ++ (show $ evaledL ++ evaledR)
+  lift $ putStrLn $ "returning value of: " ++ show (evaledL ++ evaledR)
   return (VString $ evaledL ++ evaledR, st'')
 
 -- evalExpr _ _ = ErrorT $
@@ -212,10 +210,13 @@ evalExpr _ _ = undefined
 
 -- evalExpr _ _ = undefined
 
-evalStmt :: Stmt ParsingPos -> State -> IO () -- TODO: IO State
-evalStmt (SExpr _ expr) _ = undefined -- evalExpr expr undefined >> return ()
-evalStmt stmt _ = putStrLn ("tests.txt:" ++ showLinCol (getPos stmt)
-                            ++ " evaluating statement.")
+evalStmt :: Stmt ParsingPos -> State -> ErrorT IO State
+-- evalStmt (SExpr _ _) = undefined -- evalExpr expr undefined >> return ()
+evalStmt stmt st = do
+  lift $ putStrLn ("tests.txt:" ++ showLinCol (getPos stmt)
+                    ++ " evaluating statement in state: "
+                    ++ show (counter st))
+  return st { counter = counter st + 1 }
 
 run :: String -> IO ()
 run pText = case parseProgram pText of
@@ -229,7 +230,7 @@ run pText = case parseProgram pText of
             -- putStrLn $ "\npos: " ++ (show tree)
             putStrLn $ "\nNum statements: " ++ show (length $ toListOfStmts tree)
             -- putStr $ foldr (++) "" $ map (astDumpStmt dumpStateInitial) (toListOfStmts tree)
-            forM_ (toListOfStmts tree) (\x -> evalStmt x undefined)
+            _ <- runErrorT $ foldM (\acc x -> evalStmt x acc) tempDefaultState (toListOfStmts tree)
             exitSuccess
 
 usage :: IO ()
@@ -248,29 +249,21 @@ main = do
   -- Easy part:
   x <- runErrorT $ evalExpr (EInt Nothing 3) tempDefaultState
   print x
-  putStrLn ""
-  putStrLn ""
-  putStrLn ""
+  putStrLn "\n\n"
 
   -- Hard part:
   y <- runErrorT $ evalExpr (EPlus Nothing (EBool Nothing (BTrue Nothing)) (EInt Nothing 3)) tempDefaultState
   -- y <- runErrorT $ evalExpr (EPlus Nothing (EInt Nothing 3) (EInt Nothing 8)) tempDefaultState
   print y
-  putStrLn ""
-  putStrLn ""
-  putStrLn ""
+  putStrLn "\n\n"
 
   z <- runErrorT $ evalExpr (ECat Nothing (EString Nothing "Foo") (EString Nothing "Bar")) tempDefaultState
   print z
-  putStrLn ""
-  putStrLn ""
-  putStrLn ""
+  putStrLn "\n\n"
 
   w <- runErrorT $ evalExpr (EBool Nothing (BTrue Nothing)) tempDefaultState
   print w
-  putStrLn ""
-  putStrLn ""
-  putStrLn ""
+  putStrLn "\n\n\n\n\n"
 
   -- foobar <- runErrorT $ do
     -- (q, w) <- (\z -> z tempDefaultState) <$> x
@@ -284,6 +277,7 @@ main = do
   -- print (x <*> (Ok_ tempDefaultState))
 
   putStrLn "Hello I hate haskell"
+  getContents >>= run
   -- args <- getArgs
   -- case args of
     -- ["--help"] -> usage
