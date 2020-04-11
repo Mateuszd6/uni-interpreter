@@ -1,9 +1,7 @@
 -- | TODO: Describe and disclaim that it is MaybeT copied from haskell standard
 --   libarry
-
 module Error where
 
-import Control.Monad (liftM)
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
 
 data ErrorDetail
@@ -13,57 +11,57 @@ data ErrorDetail
   deriving (Show)
 
 data Error a
-  = Ok_ a
-  | Fail_ ErrorDetail
+  = Ok a
+  | Fail ErrorDetail
   deriving (Show)
 
 instance Functor Error  where
-  fmap _ (Fail_ reason) = Fail_ reason
-  fmap f (Ok_ a) = Ok_ (f a)
+  fmap _ (Fail reason) = Fail reason
+  fmap f (Ok a) = Ok (f a)
 
 instance Applicative Error where
-  pure = Ok_
+  pure = Ok
 
-  Ok_ f <*> m = fmap f m
-  Fail_ reason <*> _m = Fail_ reason
+  Ok f <*> m = fmap f m
+  Fail reason <*> _m = Fail reason
 
-  Ok_ _m1 *> m2 = m2
-  Fail_ reason *> _m2 = Fail_ reason -- TODO(MD): Invesitgate
+  Ok _m1 *> m2 = m2
+  Fail reason *> _m2 = Fail reason -- TODO(MD): Invesitgate
 
 instance Monad Error where
-  (Ok_ x) >>= k = k x
-  Fail_ reason >>= _ = Fail_ reason
+  (Ok x) >>= k = k x
+  Fail reason >>= _ = Fail reason
 
   (>>) = (*>) -- TODO(MD): Invesitgate
 
 newtype ErrorT m a = ErrorT { runErrorT :: m (Error a) }
 
 instance MonadTrans ErrorT where
-  lift = ErrorT . fmap Ok_
+  lift = ErrorT . fmap Ok
 
 instance (Monad m) => Monad (ErrorT m) where
-  return = ErrorT . return . Ok_
+  return = ErrorT . return . Ok
 
   x >>= f = ErrorT $ do
       v <- runErrorT x
       case v of
-          Fail_ reason -> return $ Fail_ reason
-          Ok_ w -> runErrorT (f w)
+          Fail reason -> return $ Fail reason
+          Ok w -> runErrorT (f w)
 
 instance (Functor m) => Functor (ErrorT m) where
   fmap f = ErrorT . fmap (fmap f) . runErrorT
 
 instance (Functor m, Monad m) => Applicative (ErrorT m) where
-  pure = ErrorT . return . Ok_
+  pure = ErrorT . return . Ok
 
   mf <*> mx = ErrorT $ do
       mb_f <- runErrorT mf
       case mb_f of
-          Fail_ reason -> return $ Fail_ reason
-          Ok_ f -> do
+          Fail reason -> return $ Fail reason
+          Ok f -> do
               mb_x <- runErrorT mx
               case mb_x of
-                  Fail_ reason -> return $ Fail_ reason
-                  Ok_ x  -> return (Ok_ (f x))
+                  Fail reason -> return $ Fail reason
+                  Ok x  -> return (Ok (f x))
 
   m *> k = m >> k -- TODO(MD): Invesitgate

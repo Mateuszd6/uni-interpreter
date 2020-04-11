@@ -2,9 +2,9 @@
 module Main where
 
 import qualified Data.Map as Map
+import Data.Bits (xor)
 
 -- TODO: Qualify imports
-import System.IO ()
 -- import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import Control.Monad (foldM, foldM_)
@@ -70,24 +70,28 @@ varGetTypeId (VStruct sId _) = sId -- Structs know their typeids.
 
 -- TODO: produce more or refactor.
 ofTypeInt :: Var -> Error Int
-ofTypeInt (VInt v) = Ok_ v
-ofTypeInt _ = Fail_ TypeError
+ofTypeInt (VInt v) = Ok v
+ofTypeInt _ = Fail TypeError
+
+ofTypeBool :: Var -> Error Bool
+ofTypeBool (VBool v) = Ok v
+ofTypeBool _ = Fail TypeError
 
 -- TODO: These don't have to be ErrorT IO's, but rather regular Errors
 
 -- TODO: Refactor or kill
 ofTypeInt_ :: (Var, State) -> ErrorT IO (Int, State)
-ofTypeInt_ (VInt v, s) = ErrorT $ return $ Ok_ (v, s)
-ofTypeInt_ (_, _) = ErrorT $ return $ Fail_ TypeError -- TODO: Include state for dump info?
+ofTypeInt_ (VInt v, s) = ErrorT $ return $ Ok (v, s)
+ofTypeInt_ (_, _) = ErrorT $ return $ Fail TypeError -- TODO: Include state for dump info?
 
 -- TODO: produce more or refactor.
 ofTypeString :: Var -> Error String
-ofTypeString (VString v) = Ok_ v
-ofTypeString _ = Fail_ TypeError
+ofTypeString (VString v) = Ok v
+ofTypeString _ = Fail TypeError
 
 ofTypeString_ :: (Var, State) -> ErrorT IO (String, State)
-ofTypeString_ (VString str, s) = ErrorT $ return $ Ok_ (str, s)
-ofTypeString_ (_, _) = ErrorT $ return $ Fail_ TypeError -- TODO: Include state
+ofTypeString_ (VString str, s) = ErrorT $ return $ Ok (str, s)
+ofTypeString_ (_, _) = ErrorT $ return $ Fail TypeError -- TODO: Include state
                                                          -- for dump info?
 
 -- parseProg :: [Token] -> Error (Program PPos)
@@ -122,21 +126,41 @@ toListOfStmts (Prog _ statements) = statements
 -- TODO: Pass pasring pos.
 
 -- Evaluates integer binary expresion parametrized by the expression func.
-evalIntExpr :: (Int -> Int -> Int) ->
-               PPos -> Expr PPos -> Expr PPos -> State ->
-               ErrorT IO (Var, State)
+-- TODO: Show iface is needed only for debug, but is fullfiled for our use
+evalBinaryExpr :: (Show a, Show r) =>
+                  (Var -> Error a) ->
+                  (a -> a -> r) ->
+                  (r -> Var) ->
+                  PPos ->
+                  Expr PPos ->
+                  Expr PPos ->
+                  State ->
+                  ErrorT IO (Var, State)
 
-evalIntExpr func _ lhs rhs st = do
-  (evaledL, st') <- evalExpr lhs st >>= ofTypeInt_
+-- TODO: Evaluate from right to left like in C
+-- TODO: Ppos.
+evalBinaryExpr ofType func varCtor _ lhs rhs st = do
+  -- The *Conv variables are unwraped value from vars with desired type.
+
+  (evaledL, st') <- evalExpr lhs st
+  evaledLConv <- ErrorT $ return $ ofType evaledL
   lift $ print evaledL
 
-  (evaledR, st'') <- evalExpr rhs st' >>= ofTypeInt_
+  (evaledR, st'') <- evalExpr rhs st'
+  evaledRConv <- ErrorT $ return $ ofType evaledR
   lift $ print evaledR
 
-  lift $ putStrLn $ "returning value of: " ++ show (evaledL + evaledR)
-  return (VInt $ evaledL `func` evaledR, st'')
+  lift $ putStrLn $ "returning value of: " ++ show (evaledLConv `func` evaledRConv)
+
+  -- Now use the ctor to wrap calculated value back into Var type.
+  return (varCtor $ evaledLConv `func` evaledRConv, st'')
+
 
 evalExpr :: Expr PPos -> State -> ErrorT IO (Var, State)
+
+  -- | EFnCall a Ident (InvokeExprList a)
+  -- | EIife a (FunDecl a) (InvokeExprList a)
+  -- | ELValue a (LValue a)
 
 -- New try:
 evalExpr (EInt _ intVal) st = do
@@ -146,22 +170,36 @@ evalExpr (EInt _ intVal) st = do
 
 evalExpr (EString _ strVal) st = do
   let res = VString strVal
-  lift $ putStrLn $ "Evaluated integer of value: " ++ show res
+  lift $ putStrLn $ "Evaluated string of value: " ++ show res
   return (res, st)
 
 -- Bfnc doesn't tree booleans as a native types, so unwrap it.
 evalExpr (EBool _ boolVal) st = do
   let res = case boolVal of { BTrue _ -> True; BFalse _ -> False }
-  lift $ putStrLn $ "Evaluated integer of value: " ++ show res
+  lift $ putStrLn $ "Evaluated boolean of value: " ++ show res
   return (VBool res, st)
 
-evalExpr (EPlus p lhs rhs) st = evalIntExpr (+) p lhs rhs st
-evalExpr (EMinus p lhs rhs) st = evalIntExpr (-) p lhs rhs st
-evalExpr (ETimes p lhs rhs) st = evalIntExpr (*) p lhs rhs st
-evalExpr (EDiv p lhs rhs) st = evalIntExpr div p lhs rhs st -- TODO: Double check that
-evalExpr (EPow p lhs rhs) st = evalIntExpr (^) p lhs rhs st
+evalExpr (EPlus p lhs rhs) st = evalBinaryExpr ofTypeInt (+) VInt p lhs rhs st
+evalExpr (EMinus p lhs rhs) st = evalBinaryExpr ofTypeInt (-) VInt p lhs rhs st
+evalExpr (ETimes p lhs rhs) st = evalBinaryExpr ofTypeInt (*) VInt p lhs rhs st
+evalExpr (EDiv p lhs rhs) st = evalBinaryExpr ofTypeInt div VInt p lhs rhs st -- TODO: Double check that
+evalExpr (EPow p lhs rhs) st = evalBinaryExpr ofTypeInt (^) VInt p lhs rhs st
 
-evalExpr (ECat _ lhs rhs) st = do
+evalExpr (EEq p lhs rhs) st = evalBinaryExpr ofTypeInt (==) VBool p lhs rhs st
+evalExpr (ENeq p lhs rhs) st = evalBinaryExpr ofTypeInt (/=) VBool p lhs rhs st
+evalExpr (EGeq p lhs rhs) st = evalBinaryExpr ofTypeInt (>=) VBool p lhs rhs st
+evalExpr (ELeq p lhs rhs) st = evalBinaryExpr ofTypeInt (<=) VBool p lhs rhs st
+evalExpr (EGt p lhs rhs) st = evalBinaryExpr ofTypeInt (>) VBool p lhs rhs st
+evalExpr (ELt p lhs rhs) st = evalBinaryExpr ofTypeInt (<) VBool p lhs rhs st
+
+evalExpr (ELor p lhs rhs) st = evalBinaryExpr ofTypeBool (||) VBool p lhs rhs st
+evalExpr (ELand p lhs rhs) st = evalBinaryExpr ofTypeBool (&&) VBool p lhs rhs st
+evalExpr (EXor p lhs rhs) st = evalBinaryExpr ofTypeBool xor VBool p lhs rhs st
+
+evalExpr (ECat p lhs rhs) st = evalBinaryExpr ofTypeString (++) VString p lhs rhs st
+
+-- TODO: kill, when sure above is correct.
+{-evalExpr (ECat _ lhs rhs) st = do
   (evaledL, st') <- evalExpr lhs st >>= ofTypeString_
   lift $ print evaledL
 
@@ -169,16 +207,16 @@ evalExpr (ECat _ lhs rhs) st = do
   lift $ print evaledR
 
   lift $ putStrLn $ "returning value of: " ++ show (evaledL ++ evaledR)
-  return (VString $ evaledL ++ evaledR, st'')
+  return (VString $ evaledL ++ evaledR, st'') -}
 
 -- evalExpr _ _ = ErrorT $
-  -- return $ Fail_ $ NotImplemented "This is madness"
+  -- return $ Fail $ NotImplemented "This is madness"
 evalExpr _ _ = undefined
 
 -- Old:
 
 -- evalExpr expr s = ErrorT $
-  -- return $ Fail_ $ SuperBadErrorThatBasicallyShouldNotHappen "This is madness"
+  -- return $ Fail $ SuperBadErrorThatBasicallyShouldNotHappen "This is madness"
 
 -- evalExpr expr s = do
   -- lift $ putStrLn $ ("tests.txt:" ++ (showLinCol Nothing)
@@ -189,7 +227,7 @@ evalExpr _ _ = undefined
 -- evalExpr (EInt _ intVal) st = do
   -- let (res, st') = (VInt $ fromInteger intVal, st)
   -- putStrLn $ "Evaluated integer of value: " ++ show intVal
-  -- return $ (Ok_ res, st')
+  -- return $ (Ok res, st')
 
 -- evalExpr (EPlus _ lhs rhs) st = do
   -- (evaledL, st') <- evalExpr lhs st
@@ -206,7 +244,7 @@ evalExpr _ _ = undefined
 -- evalExpr expr s = do
   -- putStrLn $ "tests.txt:" ++ (showLinCol $ Nothing)
               -- ++ " evaluating expression:\n  " ++ show expr
-  -- return (Ok_ VEmpty, s)
+  -- return (Ok VEmpty, s)
 
 -- evalExpr _ _ = undefined
 
@@ -228,8 +266,8 @@ run pText = do
   -- parsing error, type error or any kind of an execution error.
   result <- runErrorT $ ((ErrorT $ return $ parseProgram pText) >>= runProgram)
   case result of
-    Ok_ () -> exitSuccess
-    Fail_ reason -> putStrLn ("ERROR: " ++ show reason) >> exitFailure
+    Ok () -> exitSuccess
+    Fail reason -> putStrLn ("ERROR: " ++ show reason) >> exitFailure
 
 usage :: IO ()
 usage = do
@@ -250,11 +288,12 @@ main = do
   putStrLn "\n\n"
 
   -- Hard part:
-  y <- runErrorT $ evalExpr (EPlus Nothing (EBool Nothing (BTrue Nothing)) (EInt Nothing 3)) tempDefaultState
-  -- y <- runErrorT $ evalExpr (EPlus Nothing (EInt Nothing 3) (EInt Nothing 8)) tempDefaultState
+  -- y <- runErrorT $ evalExpr (EPlus Nothing (EBool Nothing (BTrue Nothing)) (EInt Nothing 3)) tempDefaultState
+  y <- runErrorT $ evalExpr (EPlus Nothing (EInt Nothing 3) (EInt Nothing 8)) tempDefaultState
   print y
   putStrLn "\n\n"
 
+  -- z <- runErrorT $ evalExpr (ECat Nothing (EString Nothing "Foo") (EInt Nothing 7)) tempDefaultState
   z <- runErrorT $ evalExpr (ECat Nothing (EString Nothing "Foo") (EString Nothing "Bar")) tempDefaultState
   print z
   putStrLn "\n\n"
@@ -267,14 +306,14 @@ main = do
     -- (q, w) <- (\z -> z tempDefaultState) <$> x
     -- return (q, w)
   -- case foobar of
-    -- Fail_ descr -> putStrLn $ "Error occured"
-    -- Ok_ (q, w) -> putStrLn $ show $ (q, w)
+    -- Fail descr -> putStrLn $ "Error occured"
+    -- Ok (q, w) -> putStrLn $ show $ (q, w)
 
 
   -- y <- runErrorT $ (evalExpr (EInt Nothing 3) >>= (\z -> z tempDefaultState))
-  -- print (x <*> (Ok_ tempDefaultState))
+  -- print (x <*> (Ok tempDefaultState))
 
-  putStrLn "Hello I hate haskell"
+  putStrLn "Here we go again, motherfucker!"
   getContents >>= run
   -- args <- getArgs
   -- case args of
