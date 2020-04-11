@@ -77,7 +77,16 @@ ofTypeInt _ = Fail_ TypeError
 -- TODO: Refactor or kill
 ofTypeInt_ :: (Var, State) -> ErrorT IO (Int, State)
 ofTypeInt_ ((VInt v), s) = ErrorT $ return $ Ok_ (v, s)
-ofTypeInt_ (_, s) = ErrorT $ return $ Fail_ TypeError
+ofTypeInt_ (_, s) = ErrorT $ return $ Fail_ TypeError -- TODO: Include state for dump info?
+
+-- TODO: produce more or refactor.
+ofTypeString :: Var -> Error String
+ofTypeString (VString v) = Ok_ v
+ofTypeString _ = Fail_ TypeError
+
+ofTypeString_ :: (Var, State) -> ErrorT IO (String, State)
+ofTypeString_ ((VString str), s) = ErrorT $ return $ Ok_ (str, s)
+ofTypeString_ (_, s) = ErrorT $ return $ Fail_ TypeError -- TODO: Include state for dump info?
 
 -- parseProg :: [Token] -> Error (Program ParsingPos)
 -- parseProg = Par.pProgram
@@ -137,15 +146,36 @@ evalExpr (EInt _ intVal) st = do
   lift $ putStrLn $ "Evaluated integer of value: " ++ show intVal
   return (res, st')
 
+evalExpr (EString _ strVal) st = do
+  let res = VString strVal
+  lift $ putStrLn $ "Evaluated integer of value: " ++ show res
+  return (res, st)
+
+-- Bfnc doesn't tree booleans as a native types, so unwrap it.
+evalExpr (EBool _ boolVal) st = do
+  let res = case boolVal of { BTrue _ -> True; BFalse _ -> False }
+  lift $ putStrLn $ "Evaluated integer of value: " ++ show res
+  return (VBool res, st)
+
 evalExpr (EPlus p lhs rhs) st = evalIntExpr (+) p lhs rhs st
 evalExpr (EMinus p lhs rhs) st = evalIntExpr (-) p lhs rhs st
 evalExpr (ETimes p lhs rhs) st = evalIntExpr (*) p lhs rhs st
 evalExpr (EDiv p lhs rhs) st = evalIntExpr div p lhs rhs st -- TODO: Double check that
 evalExpr (EPow p lhs rhs) st = evalIntExpr (^) p lhs rhs st
 
-evalExpr _ _ = ErrorT $
-  return $ Fail_ $ NotImplemented "This is madness"
+evalExpr (ECat p lhs rhs) st = do
+  (evaledL, st') <- (evalExpr lhs st) >>= ofTypeString_
+  lift $ print evaledL
 
+  (evaledR, st'') <- (evalExpr rhs st') >>= ofTypeString_
+  lift $ print evaledR
+
+  lift $ putStrLn $ "returning value of: " ++ (show $ evaledL ++ evaledR)
+  return (VString $ evaledL ++ evaledR, st'')
+
+-- evalExpr _ _ = ErrorT $
+  -- return $ Fail_ $ NotImplemented "This is madness"
+evalExpr _ _ = undefined
 
 -- Old:
 
@@ -218,11 +248,29 @@ main = do
   -- Easy part:
   x <- runErrorT $ evalExpr (EInt Nothing 3) tempDefaultState
   print x
+  putStrLn ""
+  putStrLn ""
+  putStrLn ""
 
   -- Hard part:
-  -- y <- runErrorT $ evalExpr (EPlus Nothing (EInt Nothing 3) (EBool Nothing (BTrue Nothing))) tempDefaultState
-  y <- runErrorT $ evalExpr (EPlus Nothing (EInt Nothing 3) (EInt Nothing 8)) tempDefaultState
+  y <- runErrorT $ evalExpr (EPlus Nothing (EBool Nothing (BTrue Nothing)) (EInt Nothing 3)) tempDefaultState
+  -- y <- runErrorT $ evalExpr (EPlus Nothing (EInt Nothing 3) (EInt Nothing 8)) tempDefaultState
   print y
+  putStrLn ""
+  putStrLn ""
+  putStrLn ""
+
+  z <- runErrorT $ evalExpr (ECat Nothing (EString Nothing "Foo") (EString Nothing "Bar")) tempDefaultState
+  print z
+  putStrLn ""
+  putStrLn ""
+  putStrLn ""
+
+  w <- runErrorT $ evalExpr (EBool Nothing (BTrue Nothing)) tempDefaultState
+  print w
+  putStrLn ""
+  putStrLn ""
+  putStrLn ""
 
   -- foobar <- runErrorT $ do
     -- (q, w) <- (\z -> z tempDefaultState) <$> x
