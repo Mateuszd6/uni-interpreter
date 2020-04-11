@@ -8,6 +8,7 @@ import System.IO ()
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import Control.Monad (forM_)
+import Control.Monad.Trans.Class (lift, MonadTrans(..))
 
 import AbsLanguage as Abs -- TODO: Qualify
 
@@ -17,7 +18,7 @@ import Parser
 type ParsingPos = Maybe (Int, Int)
 
 showLinCol :: ParsingPos -> String
-showLinCol (Just (line, col)) = (show line) ++ ":" ++ (show col) -- TODO
+showLinCol (Just (line, col)) = show line ++ ":" ++ show col -- TODO
 showLinCol Nothing = ""
 
 type VarId = Int
@@ -38,7 +39,7 @@ data Var
   | VInt Int
   | VBool Bool
   | VString String
-  | VStruct { vStructTId :: Int, vStructVars :: (Map.Map String Var) }
+  | VStruct { vStructTId :: Int, vStructVars :: Map.Map String Var }
   deriving (Show)
 
 -- TODO: User can return a struct from a scope which defines it!!!!
@@ -52,6 +53,12 @@ data State = State
     -- stateTypes :: Map.Map TypeId () -- TODO!
   }
   deriving (Show)
+
+-- TODO Kill temps
+tempDefaultScopeNames :: ScopeNames
+tempDefaultScopeNames = ScopeNames Map.empty Map.empty Map.empty
+tempDefaultState :: State
+tempDefaultState = State tempDefaultScopeNames Map.empty Map.empty
 
 -- typeId is used to determine variable type. We can't use name becasue TODO:
 -- explain.
@@ -101,35 +108,45 @@ addError :: Error Int -> Error Int -> Error Var
 addError (Ok_ a) (Ok_ b) = Ok_ $ VInt $ a + b
 addError _ _ = Fail_ $ SuperBadErrorThatBasicallyShouldNotHappen "Should not happen"
 
-evalExpr :: Expr ParsingPos -> State -> IO (Error Var, State)
+evalExpr :: Expr ParsingPos -> ErrorT IO (State -> (Var, State))
 
-evalExpr (EInt _ intVal) st = do
-  let (res, st') = (VInt $ fromInteger intVal, st)
-  putStrLn $ "Evaluated integer of value: " ++ show intVal
-  return $ (Ok_ res, st')
+-- evalExpr expr = ErrorT $
+  -- return $ Fail_ $ SuperBadErrorThatBasicallyShouldNotHappen "This is madness"
 
-evalExpr (EPlus _ lhs rhs) st = do
-  (evaledL, st') <- evalExpr lhs st
-  (evaledR, st'') <- evalExpr rhs st'
-  let l1 = ofTypeInt evaledL
-  let l2 = ofTypeInt evaledR
+evalExpr expr = do
+  lift $ putStrLn $ ("tests.txt:" ++ (showLinCol Nothing)
+                     ++ " evaluating expression:\n  " ++ (show expr))
+  return $ \s -> (VEmpty, s)
 
-  putStrLn $ ("Should add two expressions:\n  "
-              ++ show evaledL ++ "\n  "
-              ++ show evaledR ++ "\n  "
-              ++ "which gives: " ++ (show $ addError l1 l2))
-  return (addError l1 l2, st'')
 
-evalExpr expr s = do
-  putStrLn $ "tests.txt:" ++ (showLinCol $ Nothing)
-              ++ " evaluating expression:\n  " ++ show expr
-  return (Ok_ VEmpty, s)
+-- evalExpr (EInt _ intVal) st = do
+  -- let (res, st') = (VInt $ fromInteger intVal, st)
+  -- putStrLn $ "Evaluated integer of value: " ++ show intVal
+  -- return $ (Ok_ res, st')
 
+-- evalExpr (EPlus _ lhs rhs) st = do
+  -- (evaledL, st') <- evalExpr lhs st
+  -- (evaledR, st'') <- evalExpr rhs st'
+  -- let l1 = ofTypeInt evaledL
+  -- let l2 = ofTypeInt evaledR
+
+  -- putStrLn $ ("Should add two expressions:\n  "
+              -- ++ show evaledL ++ "\n  "
+              -- ++ show evaledR ++ "\n  "
+              -- ++ "which gives: " ++ (show $ addError l1 l2))
+  -- return (addError l1 l2, st'')
+
+-- evalExpr expr s = do
+  -- putStrLn $ "tests.txt:" ++ (showLinCol $ Nothing)
+              -- ++ " evaluating expression:\n  " ++ show expr
+  -- return (Ok_ VEmpty, s)
+
+evalExpr _ = undefined
 
 evalStmt :: Stmt ParsingPos -> State -> IO () -- TODO: IO State
-evalStmt (SExpr _ (expr)) _ = evalExpr expr undefined >> return ()
-evalStmt stmt _ = putStrLn $ ("tests.txt:" ++ (showLinCol $ getPos stmt)
-                              ++ " evaluating statement.")
+evalStmt (SExpr _ expr) _ = undefined -- evalExpr expr undefined >> return ()
+evalStmt stmt _ = putStrLn ("tests.txt:" ++ showLinCol (getPos stmt)
+                            ++ " evaluating statement.")
 
 run :: String -> IO ()
 run pText = case parseProgram pText of
@@ -141,7 +158,7 @@ run pText = case parseProgram pText of
             putStrLn "Parse Successful!"
             -- putStrLn $ printTree tree
             -- putStrLn $ "\npos: " ++ (show tree)
-            putStrLn $ "\nNum statements: " ++ (show $ length $ toListOfStmts tree)
+            putStrLn $ "\nNum statements: " ++ show (length $ toListOfStmts tree)
             -- putStr $ foldr (++) "" $ map (astDumpStmt dumpStateInitial) (toListOfStmts tree)
             forM_ (toListOfStmts tree) (\x -> evalStmt x undefined)
             exitSuccess
@@ -159,9 +176,24 @@ usage = do
 
 main :: IO ()
 main = do
-  args <- getArgs
-  case args of
-    ["--help"] -> usage
-    [] -> getContents >>= run
-    "-s":fs -> mapM_ runFile fs
-    fs -> mapM_ runFile fs
+  x <- runErrorT $ evalExpr (EInt Nothing 3)
+  print (x <*> (Ok_ tempDefaultState))
+
+  foobar <- runErrorT $ do
+    (q, w) <- (\z -> z tempDefaultState) <$> x
+    return (q, w)
+  case foobar of
+    Fail_ descr -> putStrLn $ "Error occured"
+    Ok_ (q, w) -> putStrLn $ show $ (q, w)
+
+
+  -- y <- runErrorT $ (evalExpr (EInt Nothing 3) >>= (\z -> z tempDefaultState))
+  -- print (x <*> (Ok_ tempDefaultState))
+
+  putStrLn "Hello I hate haskell"
+  -- args <- getArgs
+  -- case args of
+    -- ["--help"] -> usage
+    -- [] -> getContents >>= run
+    -- "-s":fs -> mapM_ runFile fs
+    -- fs -> mapM_ runFile fs
