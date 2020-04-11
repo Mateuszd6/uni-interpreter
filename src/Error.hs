@@ -39,7 +39,7 @@ instance Monad Error where
 newtype ErrorT m a = ErrorT { runErrorT :: m (Error a) }
 
 instance MonadTrans ErrorT where
-  lift = ErrorT . liftM Ok_
+  lift = ErrorT . fmap Ok_
 
 instance (Monad m) => Monad (ErrorT m) where
   return = ErrorT . return . Ok_
@@ -66,4 +66,4 @@ instance (Functor m, Monad m) => Applicative (ErrorT m) where
                   Fail_ reason -> return $ Fail_ reason
                   Ok_ x  -> return (Ok_ (f x))
 
-  m *> k = m >>= \_ -> k -- TODO(MD): Invesitgate
+  m *> k = m >> k -- TODO(MD): Invesitgate

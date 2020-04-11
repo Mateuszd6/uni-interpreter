@@ -7,7 +7,7 @@ import qualified Data.Map as Map
 import System.IO ()
 -- import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
-import Control.Monad (foldM)
+import Control.Monad (foldM, foldM_)
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
 
 import AbsLanguage as Abs -- TODO: Qualify
@@ -15,9 +15,7 @@ import AbsLanguage as Abs -- TODO: Qualify
 import Error
 import Parser
 
-type ParsingPos = Maybe (Int, Int)
-
-showLinCol :: ParsingPos -> String
+showLinCol :: PPos -> String
 showLinCol (Just (line, col)) = show line ++ ":" ++ show col -- TODO
 showLinCol Nothing = ""
 
@@ -50,7 +48,7 @@ data State = State
     counter :: Int,
     stateNames :: ScopeNames,
     stateVars :: Map.Map VarId Var,
-    stateFuncs :: Map.Map FunId (Stmt ParsingPos, ScopeNames) -- TODO: make a type instead of using pair?
+    stateFuncs :: Map.Map FunId (Stmt PPos, ScopeNames) -- TODO: make a type instead of using pair?
     -- stateTypes :: Map.Map TypeId () -- TODO!
   }
   deriving (Show)
@@ -75,6 +73,8 @@ ofTypeInt :: Var -> Error Int
 ofTypeInt (VInt v) = Ok_ v
 ofTypeInt _ = Fail_ TypeError
 
+-- TODO: These don't have to be ErrorT IO's, but rather regular Errors
+
 -- TODO: Refactor or kill
 ofTypeInt_ :: (Var, State) -> ErrorT IO (Int, State)
 ofTypeInt_ (VInt v, s) = ErrorT $ return $ Ok_ (v, s)
@@ -90,7 +90,7 @@ ofTypeString_ (VString str, s) = ErrorT $ return $ Ok_ (str, s)
 ofTypeString_ (_, _) = ErrorT $ return $ Fail_ TypeError -- TODO: Include state
                                                          -- for dump info?
 
--- parseProg :: [Token] -> Error (Program ParsingPos)
+-- parseProg :: [Token] -> Error (Program PPos)
 -- parseProg = Par.pProgram
 -- lexProg :: String -> [Token]
 -- lexProg = Par.myLexer
@@ -98,7 +98,7 @@ ofTypeString_ (_, _) = ErrorT $ return $ Fail_ TypeError -- TODO: Include state
 runFile :: FilePath -> IO ()
 runFile f = putStrLn f >> readFile f >>= run
 
-getPos :: Stmt ParsingPos -> Maybe (Int, Int)
+getPos :: Stmt PPos -> Maybe (Int, Int)
 getPos (SIf pos _ _) = pos
 getPos (SIfElse pos _ _ _) = pos
 getPos (SFor pos _ _ _ _) = pos
@@ -123,7 +123,7 @@ toListOfStmts (Prog _ statements) = statements
 
 -- Evaluates integer binary expresion parametrized by the expression func.
 evalIntExpr :: (Int -> Int -> Int) ->
-               ParsingPos -> Expr ParsingPos -> Expr ParsingPos -> State ->
+               PPos -> Expr PPos -> Expr PPos -> State ->
                ErrorT IO (Var, State)
 
 evalIntExpr func _ lhs rhs st = do
@@ -136,7 +136,7 @@ evalIntExpr func _ lhs rhs st = do
   lift $ putStrLn $ "returning value of: " ++ show (evaledL + evaledR)
   return (VInt $ evaledL `func` evaledR, st'')
 
-evalExpr :: Expr ParsingPos -> State -> ErrorT IO (Var, State)
+evalExpr :: Expr PPos -> State -> ErrorT IO (Var, State)
 
 -- New try:
 evalExpr (EInt _ intVal) st = do
@@ -210,7 +210,7 @@ evalExpr _ _ = undefined
 
 -- evalExpr _ _ = undefined
 
-evalStmt :: Stmt ParsingPos -> State -> ErrorT IO State
+evalStmt :: Stmt PPos -> State -> ErrorT IO State
 -- evalStmt (SExpr _ _) = undefined -- evalExpr expr undefined >> return ()
 evalStmt stmt st = do
   lift $ putStrLn ("tests.txt:" ++ showLinCol (getPos stmt)
@@ -220,31 +220,16 @@ evalStmt stmt st = do
 
 -- Evaluate program in initial state.
 runProgram :: Program PPos -> ErrorT IO ()
-runProgram (Prog _ statements) =
-  -- TODO: Should use foldM_ to discard the result
-  foldM (flip evalStmt) tempDefaultState statements >> return ()
-
-convertToErrorT :: Error a -> ErrorT IO a
-convertToErrorT x = ErrorT $ return $ x
-
-foo :: String -> IO (Error ())
-foo pText = do
-  -- maybeCreds <- runErrorT $ do
-    -- usr <- readUserName
-    -- email <- readEmail
-    -- pass <- readPassword
-    -- return (usr, email, pass)
-  -- case maybeCreds of
-    -- Nothing -> print "Couldn't login!"
-    -- Just (u, e, p) -> login u e p
-  runErrorT $ (convertToErrorT (parseProgram pText) >>= runProgram)
+runProgram (Prog _ stmts) = foldM_ (flip evalStmt) tempDefaultState stmts
 
 run :: String -> IO ()
 run pText = do
-  x <- foo pText
-  case x of
-    Ok_ _ -> exitSuccess
-    Fail_ reason -> (putStrLn $ ("ERROR: " ++ show reason)) >> exitFailure
+  -- This allows us to handle any kind of error in one place. Whether it's a
+  -- parsing error, type error or any kind of an execution error.
+  result <- runErrorT $ ((ErrorT $ return $ parseProgram pText) >>= runProgram)
+  case result of
+    Ok_ () -> exitSuccess
+    Fail_ reason -> putStrLn ("ERROR: " ++ show reason) >> exitFailure
 
 usage :: IO ()
 usage = do
