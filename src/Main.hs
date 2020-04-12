@@ -13,17 +13,8 @@ import Error
 import State
 import Parser
 
--- typeId is used to determine variable type. We can't use name becasue
--- TODO: explain and decide whether it is used or not.
--- varTypeId :: Var -> Int
--- varTypeId VEmpty = 0 -- TODO: possibly use Maybe instead?
--- varTypeId (VInt _) = 1 -- Permitive types have constant typeids.
--- varTypeId (VBool _) = 2
--- varTypeId (VString _) = 3
--- varTypeId (VStruct sId _) = sId -- TODO: Structs know their typeids??
-
 showLinCol :: PPos -> String
-showLinCol (Just (line, col)) = show line ++ ":" ++ show col -- TODO
+showLinCol (Just (line, col)) = show line ++ ":" ++ show col ++ ": " -- TODO
 showLinCol Nothing = ""
 
 ofTypeInt :: Var -> Error Int
@@ -109,7 +100,7 @@ evalExpr (EInt _ intVal) st = do
 
 evalExpr (EString _ strVal) st = do
   let res = VString strVal
-  lift $ putStrLn $ "Evaluated string of value: " ++ show res
+  lift $ putStrLn $ "Evaluated string of value: " ++ strVal
   return (res, st)
 
 -- Bfnc doesn't tree booleans as a native types, so unwrap it.
@@ -140,13 +131,60 @@ evalExpr (ECat p lhs rhs) st = evalBinaryExpr ofTypeString (++) VString p lhs rh
 -- evalExpr _ _ = toErrorT $ Fail $ NotImplemented "This is madness"
 evalExpr _ _ = undefined
 
+-- TODO: Make sure that a variable can't be declared twice in the same scope.
+-- TODO: Handle the situation when the name already exists in the scope.  I
+--       think it's fine, becasue the name is replaced in the scope when
+--       inserting.
+-- TODO: Don't use vempty refactor to use maybe!
+-- TODO: This should probably fail when the variable already exists. Double
+--       check that scenario to make sure state is not changed!!
+evalVarDeclImpl :: String -> TypeId -> PPos -> Var -> State -> ErrorT IO State
+evalVarDeclImpl vname tId p var st = do
+  lift $ putStrLn ("tests.txt:" ++ showLinCol p
+                   ++ "Declaring variable: " ++ vname
+                   ++ " of type: " ++ show tId
+                   ++ " with value: " ++ show var)
+  let (vid, st') = createVar vname var st
+  lift $ putStrLn $ "created variable of varId: " ++ show vid
+  lift $ dumpState st'
+  return st'
+
+-- | Make sure the var is of the desired type or fail with a TypeError.
+enforceType :: Var -> TypeId -> Error ()
+enforceType v tId
+  | varTypeId v == tId = Ok ()
+  | otherwise = Fail EDTypeError
+
+evalVarDecl :: VarDecl PPos -> State -> ErrorT IO State
+evalVarDecl (DVDecl p (Ident vname) tp) st = do
+  tId <- toErrorT $ getTypeId tp st
+  evalVarDeclImpl vname tId p VEmpty st
+
+evalVarDecl (DVDeclAsgn p (Ident vname) tp expr) st = do
+    (v, st') <- evalExpr expr st
+    tId <- toErrorT $ getTypeId tp st'
+
+    -- Enforce that given type is same as the type of the RHS expresion.
+    _ <- runErrorT $ toErrorT $ enforceType v tId -- TODO: if it works, make
+                                                  -- sure to use it everywhere
+    evalVarDeclImpl vname tId p v st'
+
+evalVarDecl (DVDeclDeduce p (Ident vname) expr) st = do
+    (v, st') <- evalExpr expr st
+    let tId = varTypeId v -- New type is equal to the rhs type.
+    evalVarDeclImpl vname tId p v st'
+
 evalStmt :: Stmt PPos -> State -> ErrorT IO State
+
+evalStmt (SVDecl _ vdecl) st = evalVarDecl vdecl st
+
 -- evalStmt (SExpr _ _) = undefined -- evalExpr expr undefined >> return ()
 evalStmt stmt st = do
   lift $ putStrLn ("tests.txt:" ++ showLinCol (getPos stmt)
                     ++ " evaluating statement in state: "
                     ++ show (counter st))
   return st { counter = counter st + 1 }
+  return undefined
 
 -- Evaluate program in initial state.
 runProgram :: Program PPos -> ErrorT IO ()

@@ -12,10 +12,23 @@ data ErrorDetail
   = EDVarNotFound String PPos_
   | EDParsingError String
   | EDTypeError -- TOOD: refactor
+  | EDTypeNotFound String PPos_
   | NotImplemented String -- TODO? This should not happen in the final version
 
+-- TODO: hardcoded!!!
+file_ :: String
+file_ = "tests.txt"
+
+showFCol :: PPos_ -> String
+showFCol (Just (l, c)) = file_ ++ ":" ++ show l ++ ":" ++ show c ++ ": "
+showFCol Nothing = file_ ++ ": "
+
+-- TODO: unify showfcol to be called somewhere else. and do getpose for error detail.
 instance Show ErrorDetail where
+  show (EDVarNotFound name p) = showFCol p ++ "Variable `" ++ name ++ "' not in scope."
   show (EDParsingError str) = "Parsing error: " ++ str ++ "."
+  show EDTypeError = "Type error: " ++ "More details to come."
+  show (EDTypeNotFound tname p) = showFCol p ++ "Type `" ++ tname ++ "' not in scope."
   show _ = "Unknown error: No idea what is happening." -- TODO.
 
 data Error a

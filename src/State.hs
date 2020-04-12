@@ -109,3 +109,20 @@ getVar vname p (State _ store scp) =
   errorFromMaybe (EDVarNotFound vname p) $ do
   vId <- Map.lookup vname $ scopeVars scp -- Scope lookup.
   Map.lookup vId $ storeVars store -- Store lookup, should not fail.
+
+getTypeId :: Type PPos -> State -> Error TypeId
+getTypeId (TInt _) _ = Ok 1
+getTypeId (TBool _) _ = Ok 2
+getTypeId (TString _) _ = Ok 3
+getTypeId (TUser p (Ident tname)) (State _ _ scp) =
+  errorFromMaybe (EDTypeNotFound tname p)
+  $ Map.lookup tname $ scopeTypes scp
+
+-- typeId is used to determine variable type. We can't use name becasue
+-- TODO: explain and decide whether it is used or not.
+varTypeId :: Var -> Int
+varTypeId VEmpty = 0 -- TODO: possibly use Maybe instead?
+varTypeId (VInt _) = 1 -- Permitive types have constant typeids.
+varTypeId (VBool _) = 2
+varTypeId (VString _) = 3
+varTypeId (VStruct sId _) = sId -- TODO: Structs know their typeids??
