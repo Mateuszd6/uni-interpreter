@@ -17,51 +17,33 @@ showLinCol :: PPos -> String
 showLinCol (Just (line, col)) = show line ++ ":" ++ show col ++ ": " -- TODO
 showLinCol Nothing = ""
 
-ofTypeInt :: Var -> Error Int
-ofTypeInt (VInt v) = Ok v
-ofTypeInt _ = Fail EDTypeError
+-- TODO: Refactor the '?': use getTypeNameForED !
+ofTypeInt :: Var -> State -> PPos -> Error Int
+ofTypeInt (VInt v) _ _ = Ok v
+ofTypeInt var st p = Fail $ EDTypeError "int" (getTypeNameForED (varTypeId var) st) p
 
-ofTypeBool :: Var -> Error Bool
-ofTypeBool (VBool v) = Ok v
-ofTypeBool _ = Fail EDTypeError
+ofTypeBool :: Var -> State -> PPos -> Error Bool
+ofTypeBool (VBool v) _ _ = Ok v
+ofTypeBool var st p = Fail $ EDTypeError "bool" (getTypeNameForED (varTypeId var) st) p
 
-ofTypeString :: Var -> Error String
-ofTypeString (VString v) = Ok v
-ofTypeString _ = Fail EDTypeError
+ofTypeString :: Var -> State -> PPos -> Error String
+ofTypeString (VString v) _ _ = Ok v
+ofTypeString var st p = Fail $ EDTypeError "string" (getTypeNameForED (varTypeId var) st) p
 
-ofTypeStruct :: TypeId -> Var -> Error Struct
-ofTypeStruct desiredId (VStruct tId v)
+ofTypeStruct :: TypeId -> Var -> State -> PPos -> Error Struct
+ofTypeStruct desiredId (VStruct tId v) _ _
   | tId == desiredId = Ok v
-ofTypeStruct _ _ = Fail EDTypeError
-
+ofTypeStruct desiredId var st p = Fail $
+  EDTypeError (getTypeNameForED desiredId st) (getTypeNameForED (varTypeId var) st) p
 runFile :: FilePath -> IO ()
 runFile f = putStrLn f >> readFile f >>= run
-
-getPos :: Stmt PPos -> Maybe (Int, Int)
-getPos (SIf pos _ _) = pos
-getPos (SIfElse pos _ _ _) = pos
-getPos (SFor pos _ _ _ _) = pos
-getPos (SWhile pos _ _) = pos
-getPos (SExpr pos _) = pos
-getPos (SVDecl pos _) = pos
-getPos (SFDecl pos _ _) = pos
-getPos (SSDecl pos _ _) = pos
-getPos (STDecl pos _ _) = pos
-getPos (SAssign pos _  _) = pos
-getPos (STAssign pos _ _) = pos
-getPos (SIgnore pos _) = pos
-getPos (SReturn pos _) = pos
-getPos (SBreak pos) = pos
-getPos (SCont pos) = pos
-getPos (SBlock pos _ _) = pos
 
 -- Evaluates integer binary expresion parametrized by the expression func.
 -- TODO: Show iface is needed only for debug, but is fullfiled for our use
 evalBinaryExpr :: (Show a, Show r) =>
-                  (Var -> Error a) -> -- Convert Var to desired type.
+                  (Var -> State -> PPos -> Error a) -> -- Convert Var to desired type.
                   (a -> a -> r) -> -- Func performed on wrapped value.
                   (r -> Var) -> -- Ctor that wraps computed value back to Var.
-                  PPos ->
                   Expr PPos -> -- LHS expression.
                   Expr PPos -> -- RHS expression.
                   State ->
@@ -69,15 +51,15 @@ evalBinaryExpr :: (Show a, Show r) =>
 
 -- TODO: Evaluate from right to left like in C
 -- TODO: Ppos.
-evalBinaryExpr ofType func varCtor _ lhs rhs st = do
+evalBinaryExpr ofType func varCtor lhs rhs st = do
   -- The *Conv variables are unwraped value from vars with desired type.
 
   (evaledL, st') <- evalExpr lhs st
-  evaledLConv <- toErrorT $ ofType evaledL
+  evaledLConv <- toErrorT $ ofType evaledL st undefined
   lift $ print evaledL
 
   (evaledR, st'') <- evalExpr rhs st'
-  evaledRConv <- toErrorT $ ofType evaledR
+  evaledRConv <- toErrorT $ ofType evaledR st undefined
   lift $ print evaledR
 
   lift $ putStrLn $ "returning value of: " ++ show (evaledLConv `func` evaledRConv)
@@ -103,30 +85,30 @@ evalExpr (EString _ strVal) st = do
   lift $ putStrLn $ "Evaluated string of value: " ++ strVal
   return (res, st)
 
--- Bfnc doesn't tree booleans as a native types, so unwrap it.
+-- Bfnc doesn't treat booleans as a native types, so unwrap it.
 evalExpr (EBool _ boolVal) st = do
   let res = case boolVal of { BTrue _ -> True; BFalse _ -> False }
   lift $ putStrLn $ "Evaluated boolean of value: " ++ show res
   return (VBool res, st)
 
-evalExpr (EPlus p lhs rhs) st = evalBinaryExpr ofTypeInt (+) VInt p lhs rhs st
-evalExpr (EMinus p lhs rhs) st = evalBinaryExpr ofTypeInt (-) VInt p lhs rhs st
-evalExpr (ETimes p lhs rhs) st = evalBinaryExpr ofTypeInt (*) VInt p lhs rhs st
-evalExpr (EDiv p lhs rhs) st = evalBinaryExpr ofTypeInt div VInt p lhs rhs st -- TODO: Double check that
-evalExpr (EPow p lhs rhs) st = evalBinaryExpr ofTypeInt (^) VInt p lhs rhs st
+evalExpr (EPlus _ lhs rhs) st = evalBinaryExpr ofTypeInt (+) VInt lhs rhs st
+evalExpr (EMinus _ lhs rhs) st = evalBinaryExpr ofTypeInt (-) VInt lhs rhs st
+evalExpr (ETimes _ lhs rhs) st = evalBinaryExpr ofTypeInt (*) VInt lhs rhs st
+evalExpr (EDiv _ lhs rhs) st = evalBinaryExpr ofTypeInt div VInt lhs rhs st -- TODO: Double check that
+evalExpr (EPow _ lhs rhs) st = evalBinaryExpr ofTypeInt (^) VInt lhs rhs st
 
-evalExpr (EEq p lhs rhs) st = evalBinaryExpr ofTypeInt (==) VBool p lhs rhs st
-evalExpr (ENeq p lhs rhs) st = evalBinaryExpr ofTypeInt (/=) VBool p lhs rhs st
-evalExpr (EGeq p lhs rhs) st = evalBinaryExpr ofTypeInt (>=) VBool p lhs rhs st
-evalExpr (ELeq p lhs rhs) st = evalBinaryExpr ofTypeInt (<=) VBool p lhs rhs st
-evalExpr (EGt p lhs rhs) st = evalBinaryExpr ofTypeInt (>) VBool p lhs rhs st
-evalExpr (ELt p lhs rhs) st = evalBinaryExpr ofTypeInt (<) VBool p lhs rhs st
+evalExpr (EEq _ lhs rhs) st = evalBinaryExpr ofTypeInt (==) VBool lhs rhs st
+evalExpr (ENeq _ lhs rhs) st = evalBinaryExpr ofTypeInt (/=) VBool lhs rhs st
+evalExpr (EGeq _ lhs rhs) st = evalBinaryExpr ofTypeInt (>=) VBool lhs rhs st
+evalExpr (ELeq _ lhs rhs) st = evalBinaryExpr ofTypeInt (<=) VBool lhs rhs st
+evalExpr (EGt _ lhs rhs) st = evalBinaryExpr ofTypeInt (>) VBool lhs rhs st
+evalExpr (ELt _ lhs rhs) st = evalBinaryExpr ofTypeInt (<) VBool lhs rhs st
 
-evalExpr (ELor p lhs rhs) st = evalBinaryExpr ofTypeBool (||) VBool p lhs rhs st
-evalExpr (ELand p lhs rhs) st = evalBinaryExpr ofTypeBool (&&) VBool p lhs rhs st
-evalExpr (EXor p lhs rhs) st = evalBinaryExpr ofTypeBool xor VBool p lhs rhs st
+evalExpr (ELor _ lhs rhs) st = evalBinaryExpr ofTypeBool (||) VBool lhs rhs st
+evalExpr (ELand _ lhs rhs) st = evalBinaryExpr ofTypeBool (&&) VBool lhs rhs st
+evalExpr (EXor _ lhs rhs) st = evalBinaryExpr ofTypeBool xor VBool lhs rhs st
 
-evalExpr (ECat p lhs rhs) st = evalBinaryExpr ofTypeString (++) VString p lhs rhs st
+evalExpr (ECat _ lhs rhs) st = evalBinaryExpr ofTypeString (++) VString lhs rhs st
 
 -- evalExpr _ _ = toErrorT $ Fail $ NotImplemented "This is madness"
 evalExpr _ _ = undefined
@@ -150,10 +132,10 @@ evalVarDeclImpl vname tId p var st = do
   return st'
 
 -- | Make sure the var is of the desired type or fail with a TypeError.
-enforceType :: Var -> TypeId -> Error ()
-enforceType v tId
+enforceType :: Var -> TypeId -> State -> PPos -> Error ()
+enforceType v tId st p
   | varTypeId v == tId = Ok ()
-  | otherwise = Fail EDTypeError
+  | otherwise = Fail $ EDTypeError (getTypeNameForED tId st) (getTypeNameForED (varTypeId v) st) p
 
 evalVarDecl :: VarDecl PPos -> State -> ErrorT IO State
 evalVarDecl (DVDecl p (Ident vname) tp) st = do
@@ -165,8 +147,8 @@ evalVarDecl (DVDeclAsgn p (Ident vname) tp expr) st = do
     tId <- toErrorT $ getTypeId tp st'
 
     -- Enforce that given type is same as the type of the RHS expresion.
-    _ <- runErrorT $ toErrorT $ enforceType v tId -- TODO: if it works, make
-                                                  -- sure to use it everywhere
+    _ <- toErrorT $ enforceType v tId st p -- TODO: if it works, make
+                                           -- sure to use it everywhere
     evalVarDeclImpl vname tId p v st'
 
 evalVarDecl (DVDeclDeduce p (Ident vname) expr) st = do
@@ -175,6 +157,9 @@ evalVarDecl (DVDeclDeduce p (Ident vname) expr) st = do
     evalVarDeclImpl vname tId p v st'
 
 evalStmt :: Stmt PPos -> State -> ErrorT IO State
+
+-- Discard expression result and return new state.
+evalStmt (SExpr _ expr) st = evalExpr expr st >>= (return . snd)
 
 evalStmt (SVDecl _ vdecl) st = evalVarDecl vdecl st
 

@@ -1,11 +1,13 @@
+{-# LANGUAGE FlexibleInstances #-}
+
 -- | This files combines all bnfc + Alex + Happy generated files and provides
 -- minimal interface so that machine generated files don't have to be included
 -- in the main program.
-module Parser (parseProgram, PPos, Token) where
+module Parser where
+
 
 -- Auto-generated files:
 import ParLanguage (pProgram, myLexer)
-import LexLanguage (Token)
 import AbsLanguage
 import qualified ErrM
 
@@ -24,3 +26,37 @@ parseProgram = convertToError . pProgram . myLexer
     convertToError :: ErrM.Err a -> Error a
     convertToError (ErrM.Ok x) = Ok x
     convertToError (ErrM.Bad reason) = Fail $ EDParsingError reason
+
+-- These are types for 'a' that BFNC generates for me (depending on the used
+-- version). If used version lacks support for the line numbers, the program at
+-- least compiles and works.
+class ToPPos a where
+  toPPos :: a -> Maybe (Int, Int)
+
+instance ToPPos (Maybe (Int, Int)) where
+  toPPos = id
+
+instance ToPPos () where
+  toPPos _ = Nothing
+
+-- This is the iface for getting a position info from the syntax element.
+class Pos a where
+  getPos :: a -> Maybe (Int, Int)
+
+instance (ToPPos a) => Pos (Stmt a) where
+  getPos (SIf pos _ _) = toPPos pos
+  getPos (SIfElse pos _ _ _) = toPPos pos
+  getPos (SFor pos _ _ _ _) = toPPos pos
+  getPos (SWhile pos _ _) = toPPos pos
+  getPos (SExpr pos _) = toPPos pos
+  getPos (SVDecl pos _) = toPPos pos
+  getPos (SFDecl pos _ _) = toPPos pos
+  getPos (SSDecl pos _ _) = toPPos pos
+  getPos (STDecl pos _ _) = toPPos pos
+  getPos (SAssign pos _  _) = toPPos pos
+  getPos (STAssign pos _ _) = toPPos pos
+  getPos (SIgnore pos _) = toPPos pos
+  getPos (SReturn pos _) = toPPos pos
+  getPos (SBreak pos) = toPPos pos
+  getPos (SCont pos) = toPPos pos
+  getPos (SBlock pos _ _) = toPPos pos

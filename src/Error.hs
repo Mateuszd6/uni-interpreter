@@ -11,7 +11,7 @@ type PPos_ = Maybe (Int, Int) -- TODO: Kill repeating definitions of PPos
 data ErrorDetail
   = EDVarNotFound String PPos_
   | EDParsingError String
-  | EDTypeError -- TOOD: refactor
+  | EDTypeError String String PPos_
   | EDTypeNotFound String PPos_
   | NotImplemented String -- TODO? This should not happen in the final version
 
@@ -27,7 +27,9 @@ showFCol Nothing = file_ ++ ": "
 instance Show ErrorDetail where
   show (EDVarNotFound name p) = showFCol p ++ "Variable `" ++ name ++ "' not in scope."
   show (EDParsingError str) = "Parsing error: " ++ str ++ "."
-  show EDTypeError = "Type error: " ++ "More details to come."
+  show (EDTypeError expected got p) = (showFCol p ++ "Type error: "
+                                       ++ "expected `" ++ expected ++ "'"
+                                       ++ ", got `" ++ got ++ "'.")
   show (EDTypeNotFound tname p) = showFCol p ++ "Type `" ++ tname ++ "' not in scope."
   show _ = "Unknown error: No idea what is happening." -- TODO.
 

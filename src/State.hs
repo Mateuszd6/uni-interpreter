@@ -3,6 +3,8 @@
 module State where -- TODO: rename to runtime?
 
 import qualified Data.Map.Strict as Map -- TODO: Explain why strict instead of lazy.
+import qualified Data.Maybe as Maybe
+import Data.List (find)
 
 import AbsLanguage
 
@@ -117,6 +119,18 @@ getTypeId (TString _) _ = Ok 3
 getTypeId (TUser p (Ident tname)) (State _ _ scp) =
   errorFromMaybe (EDTypeNotFound tname p)
   $ Map.lookup tname $ scopeTypes scp
+
+-- | This is reverse map lookup, which is slow, but is done only once, when
+--   reporting the type error, in case when program is exploding anyway.
+getTypeNameForED :: TypeId -> State -> String
+getTypeNameForED tId (State _ _ scp)
+  | tId == 0 = "void" -- TODO: KILL IT!
+  | tId == 1 = "int"
+  | tId == 2 = "bool"
+  | tId == 3 = "string"
+  | otherwise = Maybe.fromMaybe "*unknown*" $ do
+      pair <- find ((tId ==) . snd) $ Map.toList $ scopeTypes scp
+      return $ fst pair -- Should never hit the *unknown* case, but just for safety.
 
 -- typeId is used to determine variable type. We can't use name becasue
 -- TODO: explain and decide whether it is used or not.
