@@ -5,10 +5,12 @@
 module Error where
 
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
+import State
 
 data ErrorDetail
   = ParsingError String
   | TypeError -- TOOD: refactor
+  | EDVarNotFound String State
   | NotImplemented String -- TODO? This should not happen in the final version
   deriving (Show)
 
@@ -67,6 +69,12 @@ instance (Functor m, Monad m) => Applicative (ErrorT m) where
                   Ok x  -> return (Ok (f x))
 
   m *> k = m >> k -- TODO(MD): Invesitgate
+
+-- | Convert Maybe a to Error a. If value is Nothing return an error with
+--   provided description.
+errorFromMaybe :: ErrorDetail -> Maybe a -> Error a
+errorFromMaybe _ (Just x) = Ok x
+errorFromMaybe det Nothing = Fail det
 
 -- | Used to promote regular Error into ErrorT with any wrapped monad.
 toErrorT :: Monad m => Error a -> ErrorT m a

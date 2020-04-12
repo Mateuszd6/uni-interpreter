@@ -2,101 +2,52 @@ module Main where -- TODO: This line is only to kill unused func warnings.
 
 -- TODO: Qualify imports
 import Data.Bits (xor)
+import qualified Data.Map.Strict as Map -- TODO kill
 -- TODO: Explain why strict instead of lazy.
-import qualified Data.Map.Strict as Map
 -- import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
-import Control.Monad (forM, foldM, foldM_)
+import Control.Monad -- TODO: qualify
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
 
-import AbsLanguage as Abs -- TODO: Qualify
+import AbsLanguage -- TODO: Qualify
 
 import Error
+import State
 import Parser
 
-showLinCol :: PPos -> String
-showLinCol (Just (line, col)) = show line ++ ":" ++ show col -- TODO
-showLinCol Nothing = ""
-
-type VarId = Int
-type FunId = Int
-type TypeId = Int
-
-type Struct = Map.Map String Var
-
-data Var
-  = VEmpty
-  | VInt Int
-  | VBool Bool
-  | VString String
-  | VStruct { vStructTId :: Int, vStructVars :: Struct }
-  deriving (Show)
-
--- TODO: User can return a struct from a scope which defines it!!!!
--- Probably check in return?
-
--- TODO: Explain!!
-data Scope = Scope
-  {
-    scopeVars :: Map.Map String VarId,
-    scopeFuncs :: Map.Map String FunId,
-    scopeTypes :: Map.Map String TypeId
-  }
-  deriving (Show)
-
-data Store = Store
-  {
-    storeVars :: Map.Map VarId Var,
-    storeFuncs :: Map.Map FunId (Stmt PPos, Scope), -- TODO: make a type instead of using pair?
-    -- storeTypes :: Map.Map TypeId () -- TODO!
-
-    nextVarId :: Int,
-    nextFuncId :: Int,
-    nextTypeId :: Int
-  }
-  deriving (Show)
-
-data State = State
-  {
-    counter :: Int,
-    stateStore :: Store,
-    stateScope :: Scope
-  }
-  deriving (Show)
-
--- TODO Kill temps
-tempDefaultScope :: Scope
-tempDefaultScope = Scope Map.empty Map.empty Map.empty
-tempDefaultStore :: Store
-tempDefaultStore = Store Map.empty Map.empty 1 1 4 -- TODO: Make sure id don't bind reserved onces.
-
-tempDefaultState :: State
-tempDefaultState = State 0 tempDefaultStore tempDefaultScope
-
-dumpState :: State -> IO ()
-dumpState s = do
-  putStrLn "Dumping state:"
-  putStrLn "  Store:"
-  putStrLn "    Store vars:"
-  mapM_ putStrLn $ map show $ Map.toList $ storeVars $ stateStore s
-
-
 -- | Create new variable and add it to the state.
-addNewVar :: String -> Var -> State -> (VarId, State)
-addNewVar name v s@(State _ str@(Store vars _ next _ _) scp@(Scope vnames _ _)) =
+createVar :: String -> Var -> State -> (VarId, State)
+createVar name v s@(State _ str@(Store vars _ next _ _) scp@(Scope vnames _ _)) =
   (next, s{
       stateStore = str{ storeVars = Map.insert next v vars,
                         nextVarId = next + 1 },
       stateScope = scp{ scopeVars = Map.insert name next vnames } })
 
--- typeId is used to determine variable type. We can't use name becasue TODO:
--- explain.
-varTypeId :: Var -> Int
-varTypeId VEmpty = 0 -- TODO: possibly use Maybe instead?
-varTypeId (VInt _) = 1 -- Permitive types have constant typeids.
-varTypeId (VBool _) = 2
-varTypeId (VString _) = 3
-varTypeId (VStruct sId _) = sId -- Structs know their typeids.
+-- TODO: This won't be used probably
+-- getVar :: VarId -> State -> Error Var
+-- getVar vId (State _ store _) =
+  -- errorFromMaybe VarNotFoundError $ Map.lookup vId $ storeVars store
+
+-- | Get variable by name
+getVar :: String -> State -> Error Var
+getVar vname s@(State _ store scp) =
+  errorFromMaybe (EDVarNotFound vname s) $ do
+  vId <- Map.lookup vname $ scopeVars scp -- Scope lookup.
+  Map.lookup vId $ storeVars store -- Store lookup, should not fail.
+
+
+-- typeId is used to determine variable type. We can't use name becasue
+-- TODO: explain and decide whether it is used or not.
+-- varTypeId :: Var -> Int
+-- varTypeId VEmpty = 0 -- TODO: possibly use Maybe instead?
+-- varTypeId (VInt _) = 1 -- Permitive types have constant typeids.
+-- varTypeId (VBool _) = 2
+-- varTypeId (VString _) = 3
+-- varTypeId (VStruct sId _) = sId -- TODO: Structs know their typeids??
+
+showLinCol :: PPos -> String
+showLinCol (Just (line, col)) = show line ++ ":" ++ show col -- TODO
+showLinCol Nothing = ""
 
 ofTypeInt :: Var -> Error Int
 ofTypeInt (VInt v) = Ok v
@@ -247,12 +198,15 @@ usage = do
 main :: IO ()
 main = do
   let q = tempDefaultState
-  print $ q
-  let (i, w') = addNewVar "foobar" (VInt 3) q
-  putStrLn $ "Added variable with type: " ++ show i
-  print $ w'
-  putStrLn "\n\n"
-  dumpState w'
+  print q
+  let (_, q') = createVar "foobar" (VInt 3) q
+  let (_, q'') = createVar "baz" (VString "tutututut") q'
+  let (_, q''') = createVar "is_pure" (VBool True) q''
+  dumpState q'''
+
+  let vv = getVar "is_pure" q'''
+  putStrLn $ show $ vv
+
   putStrLn "\n\n"
 
   -- Easy part:
