@@ -5,14 +5,18 @@
 module Error where
 
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
-import State
+
+type PPos_ = Maybe (Int, Int) -- TODO: Kill repeating definitions of PPos
 
 data ErrorDetail
-  = ParsingError String
-  | TypeError -- TOOD: refactor
-  | EDVarNotFound String State
+  = EDVarNotFound String PPos_
+  | EDParsingError String
+  | EDTypeError -- TOOD: refactor
   | NotImplemented String -- TODO? This should not happen in the final version
-  deriving (Show)
+
+instance Show ErrorDetail where
+  show (EDParsingError str) = "Parsing error: " ++ str ++ "."
+  show _ = "Unknown error: No idea what is happening." -- TODO.
 
 data Error a
   = Ok a

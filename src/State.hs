@@ -2,8 +2,12 @@
 -- | All program-state related classes and functions.
 module State where -- TODO: rename to runtime?
 
-import qualified Data.Map.Strict as Map
+import qualified Data.Map.Strict as Map -- TODO: Explain why strict instead of lazy.
+
 import AbsLanguage
+
+import Parser
+import Error
 
 type VarId = Int
 type FunId = Int
@@ -62,6 +66,7 @@ tempDefaultStore = Store Map.empty Map.empty 1 1 4 -- TODO: Make sure id don't b
 tempDefaultState :: State
 tempDefaultState = State 0 tempDefaultStore tempDefaultScope
 
+-- TODO: Move to dumping
 dumpState :: State -> IO ()
 dumpState s = do
   putStrLn "Dumping state:"
@@ -84,3 +89,23 @@ dumpState s = do
     putMap =
       mapM_ (putStrLn . (\(x, y) -> "      " ++ show x ++ " -> " ++ show y))
       . Map.toList
+
+-- | Create new variable and add it to the state.
+createVar :: String -> Var -> State -> (VarId, State)
+createVar name v s@(State _ str@(Store vars _ next _ _) scp@(Scope vnames _ _)) =
+  (next, s{
+      stateStore = str{ storeVars = Map.insert next v vars,
+                        nextVarId = next + 1 },
+      stateScope = scp{ scopeVars = Map.insert name next vnames } })
+
+-- TODO: This won't be used probably
+-- getVar :: VarId -> State -> Error Var
+-- getVar vId (State _ store _) =
+  -- errorFromMaybe VarNotFoundError $ Map.lookup vId $ storeVars store
+
+-- | Get variable by name
+getVar :: String -> PPos -> State -> Error Var
+getVar vname p (State _ store scp) =
+  errorFromMaybe (EDVarNotFound vname p) $ do
+  vId <- Map.lookup vname $ scopeVars scp -- Scope lookup.
+  Map.lookup vId $ storeVars store -- Store lookup, should not fail.

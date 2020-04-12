@@ -3,13 +3,13 @@
 -- in the main program.
 module Parser (parseProgram, PPos, Token) where
 
-import Error
-
 -- Auto-generated files:
 import ParLanguage (pProgram, myLexer)
 import LexLanguage (Token)
 import AbsLanguage
 import qualified ErrM
+
+import Error
 
 -- TODO: describe that it is a parsing position.
 type PPos = Maybe (Int, Int)
@@ -23,4 +23,4 @@ parseProgram = convertToError . pProgram . myLexer
   where
     convertToError :: ErrM.Err a -> Error a
     convertToError (ErrM.Ok x) = Ok x
-    convertToError (ErrM.Bad reason) = Fail $ ParsingError reason
+    convertToError (ErrM.Bad reason) = Fail $ EDParsingError reason

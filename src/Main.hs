@@ -2,8 +2,6 @@ module Main where -- TODO: This line is only to kill unused func warnings.
 
 -- TODO: Qualify imports
 import Data.Bits (xor)
-import qualified Data.Map.Strict as Map -- TODO kill
--- TODO: Explain why strict instead of lazy.
 -- import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import Control.Monad -- TODO: qualify
@@ -14,27 +12,6 @@ import AbsLanguage -- TODO: Qualify
 import Error
 import State
 import Parser
-
--- | Create new variable and add it to the state.
-createVar :: String -> Var -> State -> (VarId, State)
-createVar name v s@(State _ str@(Store vars _ next _ _) scp@(Scope vnames _ _)) =
-  (next, s{
-      stateStore = str{ storeVars = Map.insert next v vars,
-                        nextVarId = next + 1 },
-      stateScope = scp{ scopeVars = Map.insert name next vnames } })
-
--- TODO: This won't be used probably
--- getVar :: VarId -> State -> Error Var
--- getVar vId (State _ store _) =
-  -- errorFromMaybe VarNotFoundError $ Map.lookup vId $ storeVars store
-
--- | Get variable by name
-getVar :: String -> State -> Error Var
-getVar vname s@(State _ store scp) =
-  errorFromMaybe (EDVarNotFound vname s) $ do
-  vId <- Map.lookup vname $ scopeVars scp -- Scope lookup.
-  Map.lookup vId $ storeVars store -- Store lookup, should not fail.
-
 
 -- typeId is used to determine variable type. We can't use name becasue
 -- TODO: explain and decide whether it is used or not.
@@ -51,20 +28,20 @@ showLinCol Nothing = ""
 
 ofTypeInt :: Var -> Error Int
 ofTypeInt (VInt v) = Ok v
-ofTypeInt _ = Fail TypeError
+ofTypeInt _ = Fail EDTypeError
 
 ofTypeBool :: Var -> Error Bool
 ofTypeBool (VBool v) = Ok v
-ofTypeBool _ = Fail TypeError
+ofTypeBool _ = Fail EDTypeError
 
 ofTypeString :: Var -> Error String
 ofTypeString (VString v) = Ok v
-ofTypeString _ = Fail TypeError
+ofTypeString _ = Fail EDTypeError
 
 ofTypeStruct :: TypeId -> Var -> Error Struct
 ofTypeStruct desiredId (VStruct tId v)
   | tId == desiredId = Ok v
-ofTypeStruct _ _ = Fail TypeError
+ofTypeStruct _ _ = Fail EDTypeError
 
 runFile :: FilePath -> IO ()
 runFile f = putStrLn f >> readFile f >>= run
@@ -182,7 +159,7 @@ run pText = do
   result <- runErrorT (toErrorT (parseProgram pText) >>= runProgram)
   case result of
     Ok () -> exitSuccess
-    Fail reason -> putStrLn ("ERROR: " ++ show reason) >> exitFailure
+    Fail reason -> print reason >> exitFailure
 
 usage :: IO ()
 usage = do
@@ -204,8 +181,8 @@ main = do
   let (_, q''') = createVar "is_pure" (VBool True) q''
   dumpState q'''
 
-  let vv = getVar "is_pure" q'''
-  putStrLn $ show $ vv
+  let vv = getVar "is_pure_" (Just (1, 2)) q'''
+  print vv
 
   putStrLn "\n\n"
 
