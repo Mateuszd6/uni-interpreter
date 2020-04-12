@@ -20,14 +20,14 @@ export PKGNAME := mateusz_dudzinski
 all : interpreter
 
 language :
-	# Just rebuild everything - this has to be called manyally with
-	# 'make language' and probably will cause a buld break, because you need
-	# super special version of bnfc to generate a line numbers.
+	@# Just rebuild everything - this has to be called manyally with
+	@# 'make language' and probably will cause a buld break, because you need
+	@# super special version of bnfc to generate a line numbers.
 	$(BNFC) --functor --haskell Language.cf
 	$(ALEX) --ghc LexLanguage.x
 	$(HAPPY) --ghc --coerce --array ParLanguage.y
 
-	# Can't tell BNFC that I don't want these:
+	@# Can't tell BNFC that I don't want these:
 	-rm -f DocLanguage.txt PrintLanguage.hs SkelLanguage.hs TestLanguage.hs
 	-mv -f AbsLanguage.hs ErrM.hs LexLanguage.hs ParLanguage.hs ./src
 

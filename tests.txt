@@ -1,11 +1,31 @@
-1 + "foobar";
-
 x : int;
 y : int;
 z : int = 3;
-w : string = 2;
+// w : string = 2; // Fails with type error.
 z := "Mateusz";
 
+if (false)
+   was_true := 3;
+else
+   was_false := 5;
+
+// FAILS: Type error: expected `bool', got `string'.
+// if ("boo")
+//   was_2true := 3;
+
+// FAILS: Type error: expected `int', got `string'.
+// for (i : "q"..3)
+// {
+// }
+
+// FAILS: Type error: expected `int', got `string'.
+// for (i : 3.."foobar")
+// {
+// }
+
+for (i : 3..5)
+{
+}
 
 1 + "foobar";
 1 + 2 + 3;

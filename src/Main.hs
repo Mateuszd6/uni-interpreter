@@ -20,15 +20,18 @@ showLinCol Nothing = ""
 -- TODO: Refactor the '?': use getTypeNameForED !
 ofTypeInt :: Var -> State -> PPos -> Error Int
 ofTypeInt (VInt v) _ _ = Ok v
-ofTypeInt var st p = Fail $ EDTypeError "int" (getTypeNameForED (varTypeId var) st) p
+ofTypeInt var st p = Fail $
+  EDTypeError "int" (getTypeNameForED (varTypeId var) st) p
 
 ofTypeBool :: Var -> State -> PPos -> Error Bool
 ofTypeBool (VBool v) _ _ = Ok v
-ofTypeBool var st p = Fail $ EDTypeError "bool" (getTypeNameForED (varTypeId var) st) p
+ofTypeBool var st p = Fail $
+  EDTypeError "bool" (getTypeNameForED (varTypeId var) st) p
 
 ofTypeString :: Var -> State -> PPos -> Error String
 ofTypeString (VString v) _ _ = Ok v
-ofTypeString var st p = Fail $ EDTypeError "string" (getTypeNameForED (varTypeId var) st) p
+ofTypeString var st p = Fail $
+  EDTypeError "string" (getTypeNameForED (varTypeId var) st) p
 
 ofTypeStruct :: TypeId -> Var -> State -> PPos -> Error Struct
 ofTypeStruct desiredId (VStruct tId v) _ _
@@ -55,11 +58,11 @@ evalBinaryExpr ofType func varCtor lhs rhs st = do
   -- The *Conv variables are unwraped value from vars with desired type.
 
   (evaledL, st') <- evalExpr lhs st
-  evaledLConv <- toErrorT $ ofType evaledL st undefined
+  evaledLConv <- toErrorT $ ofType evaledL st $ getPos lhs
   lift $ print evaledL
 
   (evaledR, st'') <- evalExpr rhs st'
-  evaledRConv <- toErrorT $ ofType evaledR st undefined
+  evaledRConv <- toErrorT $ ofType evaledR st $ getPos rhs
   lift $ print evaledR
 
   lift $ putStrLn $ "returning value of: " ++ show (evaledLConv `func` evaledRConv)
@@ -76,9 +79,9 @@ evalExpr :: Expr PPos -> State -> ErrorT IO (Var, State)
 
 -- New try:
 evalExpr (EInt _ intVal) st = do
-  let (res, st') = (VInt $ fromInteger intVal, st)
+  let res = VInt $ fromInteger intVal
   lift $ putStrLn $ "Evaluated integer of value: " ++ show intVal
-  return (res, st')
+  return (res, st)
 
 evalExpr (EString _ strVal) st = do
   let res = VString strVal
@@ -87,9 +90,9 @@ evalExpr (EString _ strVal) st = do
 
 -- Bfnc doesn't treat booleans as a native types, so unwrap it.
 evalExpr (EBool _ boolVal) st = do
-  let res = case boolVal of { BTrue _ -> True; BFalse _ -> False }
-  lift $ putStrLn $ "Evaluated boolean of value: " ++ show res
-  return (VBool res, st)
+  let bl = case boolVal of { BTrue _ -> True; BFalse _ -> False }
+  lift $ putStrLn $ "Evaluated boolean of value: " ++ show bl
+  return (VBool bl, st)
 
 evalExpr (EPlus _ lhs rhs) st = evalBinaryExpr ofTypeInt (+) VInt lhs rhs st
 evalExpr (EMinus _ lhs rhs) st = evalBinaryExpr ofTypeInt (-) VInt lhs rhs st
@@ -111,7 +114,7 @@ evalExpr (EXor _ lhs rhs) st = evalBinaryExpr ofTypeBool xor VBool lhs rhs st
 evalExpr (ECat _ lhs rhs) st = evalBinaryExpr ofTypeString (++) VString lhs rhs st
 
 -- evalExpr _ _ = toErrorT $ Fail $ NotImplemented "This is madness"
-evalExpr _ _ = undefined
+evalExpr expr _ = lift $ print expr >> undefined
 
 -- TODO: Make sure that a variable can't be declared twice in the same scope.
 -- TODO: Handle the situation when the name already exists in the scope.  I
@@ -143,20 +146,64 @@ evalVarDecl (DVDecl p (Ident vname) tp) st = do
   evalVarDeclImpl vname tId p VEmpty st
 
 evalVarDecl (DVDeclAsgn p (Ident vname) tp expr) st = do
-    (v, st') <- evalExpr expr st
-    tId <- toErrorT $ getTypeId tp st'
+  (v, st') <- evalExpr expr st
+  tId <- toErrorT $ getTypeId tp st'
 
-    -- Enforce that given type is same as the type of the RHS expresion.
-    _ <- toErrorT $ enforceType v tId st p -- TODO: if it works, make
-                                           -- sure to use it everywhere
-    evalVarDeclImpl vname tId p v st'
+  -- Enforce that given type is same as the type of the RHS expresion.
+  _ <- toErrorT $ enforceType v tId st $ getPos expr
+  evalVarDeclImpl vname tId p v st'
 
 evalVarDecl (DVDeclDeduce p (Ident vname) expr) st = do
     (v, st') <- evalExpr expr st
     let tId = varTypeId v -- New type is equal to the rhs type.
     evalVarDeclImpl vname tId p v st'
 
+evalIfStmtImpl :: Expr PPos -> Stmt PPos -> Maybe (Stmt PPos) -> State -> ErrorT IO State
+evalIfStmtImpl expr stmt elseStmt st = do
+  (v, st') <- evalExpr expr st
+  cond <- toErrorT $ ofTypeBool v st (getPos expr)
+  lift $ putStrLn $ "evaluated bool: " ++ show cond
+  if cond
+    then evalStmt stmt st'
+    else case elseStmt of
+           Just s -> evalStmt s st'
+           Nothing -> toErrorT $ Ok st'
+
+evalLoopImpl :: Expr PPos -> Stmt PPos -> Maybe (Stmt PPos) -> State -> ErrorT IO State
+evalLoopImpl expr stmt incStmt st = do
+  (v, st') <- evalExpr expr st
+  cond <- toErrorT $ ofTypeBool v st (getPos expr)
+  lift $ putStrLn $ "evaluated loop condition: " ++ show cond
+  if cond
+    then evalLoopImpl expr stmt incStmt st'
+    else return st'
+
 evalStmt :: Stmt PPos -> State -> ErrorT IO State
+
+  -- TODO: First:
+  -- | SFor a Ident (Expr a) (Expr a) (Stmt a)
+  -- | SWhile a (Expr a) (Stmt a)
+
+evalStmt (SIf _ expr stmt) st = evalIfStmtImpl expr stmt Nothing st
+evalStmt (SIfElse _ expr stmt elStmt) st = evalIfStmtImpl expr stmt (Just elStmt) st
+
+evalStmt (SWhile _ expr stmt) st = evalLoopImpl expr stmt Nothing st
+
+evalStmt e@(SFor _ (Ident iterName) eStart eEnd stmt) st = do
+  (vStart, st') <- evalExpr eStart st
+  vStartConv <- toErrorT $ ofTypeInt vStart st' (getPos eStart)
+
+  (vEnd, st'') <- evalExpr eEnd st'
+  vEndConv <- toErrorT $ ofTypeInt vEnd st'' (getPos eEnd)
+
+  lift $ putStrLn $ "Loop goes from " ++ show vStartConv ++ " to " ++ show vEndConv
+
+  st''' <- evalVarDeclImpl iterName 1 (getPos e) (VInt vStartConv) st'' -- TODO: 1 is int tid. Don't hardcode!
+  let incFunc = if vStartConv < vEndConv then (+ (1 :: Int)) else (\x -> x - 1)
+
+  evalLoopImpl (ENeq Nothing
+                (ELValue Nothing $ LValueVar Nothing $ Ident iterName)
+                (EInt Nothing $ toInteger vEndConv)) stmt Nothing st
 
 -- Discard expression result and return new state.
 evalStmt (SExpr _ expr) st = evalExpr expr st >>= (return . snd)
@@ -197,6 +244,7 @@ usage = do
 
 main :: IO ()
 main = do
+  {-
   let q = tempDefaultState
   print q
   let (_, q') = createVar "foobar" (VInt 3) q
@@ -240,7 +288,7 @@ main = do
   -- y <- runErrorT $ (evalExpr (EInt Nothing 3) >>= (\z -> z tempDefaultState))
   -- print (x <*> (Ok tempDefaultState))
 
-  putStrLn "Here we go again, motherfucker!"
+  putStrLn "Here we go again, motherfucker!" -}
   getContents >>= run
   -- args <- getArgs
   -- case args of

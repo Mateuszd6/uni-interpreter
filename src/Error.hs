@@ -23,7 +23,7 @@ showFCol :: PPos_ -> String
 showFCol (Just (l, c)) = file_ ++ ":" ++ show l ++ ":" ++ show c ++ ": "
 showFCol Nothing = file_ ++ ": "
 
--- TODO: unify showfcol to be called somewhere else. and do getpose for error detail.
+-- TODO: unify showfcol to be called somewhere else. and do getpos for error detail.
 instance Show ErrorDetail where
   show (EDVarNotFound name p) = showFCol p ++ "Variable `" ++ name ++ "' not in scope."
   show (EDParsingError str) = "Parsing error: " ++ str ++ "."

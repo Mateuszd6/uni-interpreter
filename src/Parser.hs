@@ -14,6 +14,7 @@ import qualified ErrM
 import Error
 
 -- TODO: describe that it is a parsing position.
+-- TODO: Note that the program requires speciyfic version of BNFC
 type PPos = Maybe (Int, Int)
 
 -- Do lexing, then parsing. Lexing can't fail and by combing these functions we
@@ -27,36 +28,47 @@ parseProgram = convertToError . pProgram . myLexer
     convertToError (ErrM.Ok x) = Ok x
     convertToError (ErrM.Bad reason) = Fail $ EDParsingError reason
 
--- These are types for 'a' that BFNC generates for me (depending on the used
--- version). If used version lacks support for the line numbers, the program at
--- least compiles and works.
-class ToPPos a where
-  toPPos :: a -> Maybe (Int, Int)
-
-instance ToPPos (Maybe (Int, Int)) where
-  toPPos = id
-
-instance ToPPos () where
-  toPPos _ = Nothing
-
 -- This is the iface for getting a position info from the syntax element.
 class Pos a where
   getPos :: a -> Maybe (Int, Int)
 
-instance (ToPPos a) => Pos (Stmt a) where
-  getPos (SIf pos _ _) = toPPos pos
-  getPos (SIfElse pos _ _ _) = toPPos pos
-  getPos (SFor pos _ _ _ _) = toPPos pos
-  getPos (SWhile pos _ _) = toPPos pos
-  getPos (SExpr pos _) = toPPos pos
-  getPos (SVDecl pos _) = toPPos pos
-  getPos (SFDecl pos _ _) = toPPos pos
-  getPos (SSDecl pos _ _) = toPPos pos
-  getPos (STDecl pos _ _) = toPPos pos
-  getPos (SAssign pos _  _) = toPPos pos
-  getPos (STAssign pos _ _) = toPPos pos
-  getPos (SIgnore pos _) = toPPos pos
-  getPos (SReturn pos _) = toPPos pos
-  getPos (SBreak pos) = toPPos pos
-  getPos (SCont pos) = toPPos pos
-  getPos (SBlock pos _ _) = toPPos pos
+instance Pos (Stmt (Maybe (Int, Int))) where
+  getPos (SIf pos _ _) = pos
+  getPos (SIfElse pos _ _ _) = pos
+  getPos (SFor pos _ _ _ _) = pos
+  getPos (SWhile pos _ _) = pos
+  getPos (SExpr pos _) = pos
+  getPos (SVDecl pos _) = pos
+  getPos (SFDecl pos _ _) = pos
+  getPos (SSDecl pos _ _) = pos
+  getPos (STDecl pos _ _) = pos
+  getPos (SAssign pos _  _) = pos
+  getPos (STAssign pos _ _) = pos
+  getPos (SIgnore pos _) = pos
+  getPos (SReturn pos _) = pos
+  getPos (SBreak pos) = pos
+  getPos (SCont pos) = pos
+  getPos (SBlock pos _ _) = pos
+
+instance Pos (Expr (Maybe (Int, Int))) where
+  getPos (EPlus pos _ _) = pos
+  getPos (EMinus pos _ _) = pos
+  getPos (ECat pos _ _) = pos
+  getPos (ETimes pos _ _) = pos
+  getPos (EDiv pos _ _) = pos
+  getPos (EPow pos _ _) = pos
+  getPos (EEq pos _ _) = pos
+  getPos (ENeq pos _ _) = pos
+  getPos (EGeq pos _ _) = pos
+  getPos (ELeq pos _ _) = pos
+  getPos (EGt pos _ _) = pos
+  getPos (ELt pos _ _) = pos
+  getPos (ELor pos _ _) = pos
+  getPos (ELand pos _ _) = pos
+  getPos (EXor pos _ _) = pos
+  getPos (EFnCall pos _ _) = pos
+  getPos (EIife pos _ _) = pos
+  getPos (ELValue pos _) = pos
+  getPos (EString pos _) = pos
+  getPos (EInt pos _) = pos
+  getPos (EBool pos _) = pos
