@@ -23,6 +23,10 @@ else
 // {
 // }
 
+// It loops infinitely. TODO: Revive once we have LValues and asignment.
+// while (true)
+//       x := 4;
+
 for (i : 3..5)
 {
 }

@@ -27,9 +27,9 @@ showFCol Nothing = file_ ++ ": "
 instance Show ErrorDetail where
   show (EDVarNotFound name p) = showFCol p ++ "Variable `" ++ name ++ "' not in scope."
   show (EDParsingError str) = "Parsing error: " ++ str ++ "."
-  show (EDTypeError expected got p) = (showFCol p ++ "Type error: "
-                                       ++ "expected `" ++ expected ++ "'"
-                                       ++ ", got `" ++ got ++ "'.")
+  show (EDTypeError expected got p) = showFCol p ++ "Type error: "
+                                      ++ "expected `" ++ expected ++ "'"
+                                      ++ ", got `" ++ got ++ "'."
   show (EDTypeNotFound tname p) = showFCol p ++ "Type `" ++ tname ++ "' not in scope."
   show _ = "Unknown error: No idea what is happening." -- TODO.
 

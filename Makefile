@@ -34,6 +34,12 @@ language :
 interpreter : src/Main.hs
 	$(GHC) -Wall --make -isrc src/Main.hs -odir obj -hidir obj -o $@
 
+test :
+	./interpreter < ./tests.txt
+
+lint :
+	hlint ./src/Main.hs ./src/Error.hs ./src/State.hs ./src/Parser.hs
+
 package : clean all
 	-rm -rf $(PKGNAME)
 	mkdir -p $(PKGNAME)

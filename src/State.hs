@@ -106,11 +106,17 @@ createVar name v s@(State _ str@(Store vars _ next _ _) scp@(Scope vnames _ _)) 
   -- errorFromMaybe VarNotFoundError $ Map.lookup vId $ storeVars store
 
 -- | Get variable by name
-getVar :: String -> PPos -> State -> Error Var
+getVar :: String -> PPos -> State -> Error (VarId, Var)
 getVar vname p (State _ store scp) =
   errorFromMaybe (EDVarNotFound vname p) $ do
   vId <- Map.lookup vname $ scopeVars scp -- Scope lookup.
-  Map.lookup vId $ storeVars store -- Store lookup, should not fail.
+  var <- Map.lookup vId $ storeVars store -- Store lookup, should not fail.
+  return (vId, var)
+
+-- TODO: I guess this should never happen, because to set a variable
+--       we have to get it first. Also PPos?
+setVar :: VarId -> State -> Error State
+setVar vId st = undefined
 
 getTypeId :: Type PPos -> State -> Error TypeId
 getTypeId (TInt _) _ = Ok 1

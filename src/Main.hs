@@ -113,8 +113,19 @@ evalExpr (EXor _ lhs rhs) st = evalBinaryExpr ofTypeBool xor VBool lhs rhs st
 
 evalExpr (ECat _ lhs rhs) st = evalBinaryExpr ofTypeString (++) VString lhs rhs st
 
+evalExpr (ELValue p (LValueVar _ (Ident vname))) st = do
+  (_, v) <- toErrorT $ getVar vname p st
+  return (v, st)
+
+evalExpr (ELValue _ _) _ = undefined
+
+  -- EDVarNotFound String PPos_
+
 -- evalExpr _ _ = toErrorT $ Fail $ NotImplemented "This is madness"
-evalExpr expr _ = lift $ print expr >> undefined
+evalExpr expr _ = do -- TODO: This dies!
+  lift $ print expr
+  lift $ print $ "Cant evaluate expr at: " ++ showFCol (getPos expr)
+  undefined
 
 -- TODO: Make sure that a variable can't be declared twice in the same scope.
 -- TODO: Handle the situation when the name already exists in the scope.  I
@@ -150,7 +161,7 @@ evalVarDecl (DVDeclAsgn p (Ident vname) tp expr) st = do
   tId <- toErrorT $ getTypeId tp st'
 
   -- Enforce that given type is same as the type of the RHS expresion.
-  _ <- toErrorT $ enforceType v tId st $ getPos expr
+  toErrorT $ enforceType v tId st $ getPos expr
   evalVarDeclImpl vname tId p v st'
 
 evalVarDecl (DVDeclDeduce p (Ident vname) expr) st = do
@@ -175,14 +186,14 @@ evalLoopImpl expr stmt incStmt st = do
   cond <- toErrorT $ ofTypeBool v st (getPos expr)
   lift $ putStrLn $ "evaluated loop condition: " ++ show cond
   if cond
-    then evalLoopImpl expr stmt incStmt st'
+    then do
+      st'' <- case incStmt of -- If incStmt is specified evaluate it.
+                Nothing -> return st'
+                Just increm -> evalStmt increm st'
+      evalLoopImpl expr stmt incStmt st''
     else return st'
 
 evalStmt :: Stmt PPos -> State -> ErrorT IO State
-
-  -- TODO: First:
-  -- | SFor a Ident (Expr a) (Expr a) (Stmt a)
-  -- | SWhile a (Expr a) (Stmt a)
 
 evalStmt (SIf _ expr stmt) st = evalIfStmtImpl expr stmt Nothing st
 evalStmt (SIfElse _ expr stmt elStmt) st = evalIfStmtImpl expr stmt (Just elStmt) st
@@ -198,24 +209,39 @@ evalStmt e@(SFor _ (Ident iterName) eStart eEnd stmt) st = do
 
   lift $ putStrLn $ "Loop goes from " ++ show vStartConv ++ " to " ++ show vEndConv
 
-  st''' <- evalVarDeclImpl iterName 1 (getPos e) (VInt vStartConv) st'' -- TODO: 1 is int tid. Don't hardcode!
-  let incFunc = if vStartConv < vEndConv then (+ (1 :: Int)) else (\x -> x - 1)
+  -- Build artificial statements and use them to control loop flow:
+  let incFunc = if vStartConv < vEndConv then EPlus else EMinus
+      iterLValExpr = LValueVar Nothing $ Ident iterName
+      incRhsExpr = incFunc Nothing (ELValue Nothing iterLValExpr) $ EInt Nothing 1
+      endExpr = EInt Nothing $ toInteger vEndConv
+      incStmt = SAssign Nothing iterLValExpr incRhsExpr
+      cmpExpr = ENeq Nothing (ELValue Nothing iterLValExpr) endExpr
 
-  evalLoopImpl (ENeq Nothing
-                (ELValue Nothing $ LValueVar Nothing $ Ident iterName)
-                (EInt Nothing $ toInteger vEndConv)) stmt Nothing st
+  -- Declare the loop iterator and evaluate loop with control statements.
+  st''' <- evalVarDeclImpl iterName 1 (getPos e) (VInt vStartConv) st'' -- TODO: 1 is int tid. Don't hardcode!
+  evalLoopImpl cmpExpr stmt (Just incStmt) st'''
+  -- TODO: Iterator visible after leaving the loop?
 
 -- Discard expression result and return new state.
 evalStmt (SExpr _ expr) st = evalExpr expr st >>= (return . snd)
 
 evalStmt (SVDecl _ vdecl) st = evalVarDecl vdecl st
 
+evalStmt (SAssign p0 (LValueVar p1 (Ident vname)) expr) st = do
+  (vId, var) <- toErrorT $ getVar vname p1 st
+  (asgnVal, st') <- evalExpr expr st
+  toErrorT $ enforceType var (varTypeId asgnVal) st' p0
+  toErrorT $ setVar vId st' -- TODO: Next this all should be handled by setvar.
+
 -- evalStmt (SExpr _ _) = undefined -- evalExpr expr undefined >> return ()
-evalStmt stmt st = do
+evalStmt stmt st = do -- TODO: This dies!
   lift $ putStrLn ("tests.txt:" ++ showLinCol (getPos stmt)
                     ++ " evaluating statement in state: "
                     ++ show (counter st))
-  return st { counter = counter st + 1 }
+  lift $ putStrLn ("tests.txt:" ++ showLinCol (getPos stmt)
+                   ++ "No idea how to eavluate " ++ show stmt)
+
+  -- return st { counter = counter st + 1 }
   return undefined
 
 -- Evaluate program in initial state.
