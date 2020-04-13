@@ -197,9 +197,12 @@ evalLoopImpl expr stmt incStmt st = do
 
 evalStmt :: Stmt PPos -> State -> ErrorT IO State
 
+evalStmt (SBlock Nothing _ stmts) st = scope (\s -> foldM (flip evalStmt) s stmts) st
+
 evalStmt (SIf _ expr stmt) st = evalIfStmtImpl expr stmt Nothing st
 evalStmt (SIfElse _ expr stmt elStmt) st = evalIfStmtImpl expr stmt (Just elStmt) st
 
+-- TODO: Should this be scoped?
 evalStmt (SWhile _ expr stmt) st = evalLoopImpl expr stmt Nothing st
 
 evalStmt e@(SFor _ (Ident iterName) eStart eEnd stmt) st = do
@@ -221,12 +224,13 @@ evalStmt e@(SFor _ (Ident iterName) eStart eEnd stmt) st = do
       incStmt = SAssign Nothing iterLVal incRhsExpr
       cmpExpr = cmpFunc Nothing (ELValue Nothing iterLVal) endExpr
 
-  -- Declare the loop iterator and evaluate loop with control statements.
-  st''' <- evalVarDeclImpl iterName 1 (getPos e) (VInt vStartConv) st'' -- TODO: 1 is int tid. Don't hardcode!
-  st'''' <- evalLoopImpl cmpExpr stmt (Just incStmt) st'''
-  lift $ dumpState st''''
-  return st''''
-  -- TODO: Iterator visible after leaving the loop?
+  -- Create func taht declares a loop iterator and evaluates loop with given
+  -- control statements. Then run the function in a single scope.
+  let f s = do
+        s' <- evalVarDeclImpl iterName 1 (getPos e) (VInt vStartConv) s
+        evalLoopImpl cmpExpr stmt (Just incStmt) s'
+
+  scope f st''
 
 -- Discard expression result and return new state.
 evalStmt (SExpr _ expr) st = evalExpr expr st >>= (return . snd)

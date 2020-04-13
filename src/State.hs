@@ -148,3 +148,8 @@ varTypeId (VInt _) = 1 -- Permitive types have constant typeids.
 varTypeId (VBool _) = 2
 varTypeId (VString _) = 3
 varTypeId (VStruct sId _) = sId -- TODO: Structs know their typeids??
+
+scope :: (State -> ErrorT IO State) -> State -> ErrorT IO State
+scope fun st = do
+  st' <- fun st
+  return st'{ stateScope = stateScope st }
