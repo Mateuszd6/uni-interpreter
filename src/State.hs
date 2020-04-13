@@ -42,7 +42,8 @@ data Store = Store
     storeVars :: Map.Map VarId Var,
     -- TODO: Instead maybe should be PPos but can't include parser.
     --       Include this in parser?
-    storeFuncs :: Map.Map FunId (Stmt (Maybe (Int, Int)), Scope), -- TODO: make a type instead of using pair?
+    -- TODO: make a type instead of using tuple?
+    storeFuncs :: Map.Map FunId (Stmt (Maybe (Int, Int)), TypeId, Scope),
     -- storeTypes :: Map.Map TypeId () -- TODO!
 
     nextVarId :: Int,
@@ -99,6 +100,13 @@ createVar name v s@(State _ str@(Store vars _ next _ _) scp@(Scope vnames _ _)) 
       stateStore = str{ storeVars = Map.insert next v vars,
                         nextVarId = next + 1 },
       stateScope = scp{ scopeVars = Map.insert name next vnames } })
+
+createFunc :: String -> Stmt (Maybe (Int, Int)) -> TypeId -> State -> (FunId, State)
+createFunc name body ret s@(State _ str@(Store _ funcs _ next _) scp@(Scope _ fnames _)) =
+  (next, s{
+      stateStore = str{ storeFuncs = Map.insert next (body, ret, scp) funcs,
+                        nextFuncId = next + 1 },
+      stateScope = scp{ scopeFuncs = Map.insert name next fnames } })
 
 -- TODO: This won't be used probably
 -- getVar :: VarId -> State -> Error Var

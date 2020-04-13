@@ -38,6 +38,14 @@ ofTypeStruct desiredId (VStruct tId v) _ _
   | tId == desiredId = Ok v
 ofTypeStruct desiredId var st p = Fail $
   EDTypeError (getTypeNameForED desiredId st) (getTypeNameForED (varTypeId var) st) p
+
+-- | Make sure the var is of the desired type or fail with a TypeError.
+enforceType :: Var -> TypeId -> State -> PPos -> Error ()
+enforceType v tId st p
+  | varTypeId v == tId = Ok ()
+  | otherwise = Fail $
+    EDTypeError (getTypeNameForED tId st) (getTypeNameForED (varTypeId v) st) p
+
 runFile :: FilePath -> IO ()
 runFile f = putStrLn f >> readFile f >>= run
 
@@ -124,7 +132,7 @@ evalExpr (ELValue _ _) _ = undefined
 -- evalExpr _ _ = toErrorT $ Fail $ NotImplemented "This is madness"
 evalExpr expr _ = do -- TODO: This dies!
   lift $ print expr
-  lift $ print $ "Cant evaluate expr at: " ++ showFCol (getPos expr)
+  lift $ putStrLn $ "Cant evaluate expr at: " ++ showFCol (getPos expr)
   undefined
 
 -- TODO: Make sure that a variable can't be declared twice in the same scope.
@@ -144,12 +152,6 @@ evalVarDeclImpl vname tId p var st = do
   lift $ putStrLn $ "created variable of varId: " ++ show vid
   lift $ dumpState st'
   return st'
-
--- | Make sure the var is of the desired type or fail with a TypeError.
-enforceType :: Var -> TypeId -> State -> PPos -> Error ()
-enforceType v tId st p
-  | varTypeId v == tId = Ok ()
-  | otherwise = Fail $ EDTypeError (getTypeNameForED tId st) (getTypeNameForED (varTypeId v) st) p
 
 evalVarDecl :: VarDecl PPos -> State -> ErrorT IO State
 evalVarDecl (DVDecl p (Ident vname) tp) st = do
@@ -236,6 +238,12 @@ evalStmt e@(SFor _ (Ident iterName) eStart eEnd stmt) st = do
 evalStmt (SExpr _ expr) st = evalExpr expr st >>= (return . snd)
 
 evalStmt (SVDecl _ vdecl) st = evalVarDecl vdecl st
+evalStmt (SFDecl p (Ident fname) (FDDefault _ params bd funRet stmts)) st = do
+  lift $ putStrLn $ showFCol p ++ "Declaring function named `" ++ fname ++ "'."
+  let body = SBlock p bd stmts -- TODO: Using Sblock is dangerous because bind
+                               -- may eliminate function arguments.
+      st' = snd $ createFunc fname body 0 st -- TODO: 0 means vempty - don't hardcode
+  return st'
 
 evalStmt (SAssign p0 (LValueVar p1 (Ident vname)) expr) st = do
   (asgnVal, st') <- evalExpr expr st
@@ -243,7 +251,6 @@ evalStmt (SAssign p0 (LValueVar p1 (Ident vname)) expr) st = do
   toErrorT $ enforceType var (varTypeId asgnVal) st' p0
   toErrorT $ setVar vId asgnVal st' -- TODO: Next this all should be handled by setvar.
 
--- evalStmt (SExpr _ _) = undefined -- evalExpr expr undefined >> return ()
 evalStmt stmt st = do -- TODO: This dies!
   lift $ putStrLn ("tests.txt:" ++ showLinCol (getPos stmt)
                     ++ " evaluating statement in state: "

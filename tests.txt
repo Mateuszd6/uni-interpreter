@@ -1,3 +1,10 @@
+exmaple1 :: (x : int, y : int) -> int
+{
+    return y * x;
+}
+
+foobar();
+
 i := 1;
 
 {
