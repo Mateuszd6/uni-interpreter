@@ -183,14 +183,16 @@ evalIfStmtImpl expr stmt elseStmt st = do
 evalLoopImpl :: Expr PPos -> Stmt PPos -> Maybe (Stmt PPos) -> State -> ErrorT IO State
 evalLoopImpl expr stmt incStmt st = do
   (v, st') <- evalExpr expr st
-  cond <- toErrorT $ ofTypeBool v st (getPos expr)
+  cond <- toErrorT $ ofTypeBool v st' (getPos expr)
   lift $ putStrLn $ "evaluated loop condition: " ++ show cond
+  lift $ print $ getVar "i" Nothing st'
   if cond
     then do
-      st'' <- case incStmt of -- If incStmt is specified evaluate it.
-                Nothing -> return st'
-                Just increm -> evalStmt increm st'
-      evalLoopImpl expr stmt incStmt st''
+      st'' <- evalStmt stmt st'
+      st''' <- case incStmt of -- If incStmt is specified evaluate it.
+                Nothing -> return st''
+                Just increm -> evalStmt increm st''
+      evalLoopImpl expr stmt incStmt st'''
     else return st'
 
 evalStmt :: Stmt PPos -> State -> ErrorT IO State
@@ -210,16 +212,20 @@ evalStmt e@(SFor _ (Ident iterName) eStart eEnd stmt) st = do
   lift $ putStrLn $ "Loop goes from " ++ show vStartConv ++ " to " ++ show vEndConv
 
   -- Build artificial statements and use them to control loop flow:
-  let incFunc = if vStartConv < vEndConv then EPlus else EMinus
-      iterLValExpr = LValueVar Nothing $ Ident iterName
-      incRhsExpr = incFunc Nothing (ELValue Nothing iterLValExpr) $ EInt Nothing 1
+  let (cmpFunc, incFunc) = if vStartConv < vEndConv
+                             then (ELeq, EPlus)
+                             else (EGeq, EMinus)
+      iterLVal = LValueVar Nothing $ Ident iterName
+      incRhsExpr = incFunc Nothing (ELValue Nothing iterLVal) $ EInt Nothing 1
       endExpr = EInt Nothing $ toInteger vEndConv
-      incStmt = SAssign Nothing iterLValExpr incRhsExpr
-      cmpExpr = ENeq Nothing (ELValue Nothing iterLValExpr) endExpr
+      incStmt = SAssign Nothing iterLVal incRhsExpr
+      cmpExpr = cmpFunc Nothing (ELValue Nothing iterLVal) endExpr
 
   -- Declare the loop iterator and evaluate loop with control statements.
   st''' <- evalVarDeclImpl iterName 1 (getPos e) (VInt vStartConv) st'' -- TODO: 1 is int tid. Don't hardcode!
-  evalLoopImpl cmpExpr stmt (Just incStmt) st'''
+  st'''' <- evalLoopImpl cmpExpr stmt (Just incStmt) st'''
+  lift $ dumpState st''''
+  return st''''
   -- TODO: Iterator visible after leaving the loop?
 
 -- Discard expression result and return new state.
@@ -228,10 +234,10 @@ evalStmt (SExpr _ expr) st = evalExpr expr st >>= (return . snd)
 evalStmt (SVDecl _ vdecl) st = evalVarDecl vdecl st
 
 evalStmt (SAssign p0 (LValueVar p1 (Ident vname)) expr) st = do
-  (vId, var) <- toErrorT $ getVar vname p1 st
   (asgnVal, st') <- evalExpr expr st
+  (vId, var) <- toErrorT $ getVar vname p1 st
   toErrorT $ enforceType var (varTypeId asgnVal) st' p0
-  toErrorT $ setVar vId st' -- TODO: Next this all should be handled by setvar.
+  toErrorT $ setVar vId asgnVal st' -- TODO: Next this all should be handled by setvar.
 
 -- evalStmt (SExpr _ _) = undefined -- evalExpr expr undefined >> return ()
 evalStmt stmt st = do -- TODO: This dies!

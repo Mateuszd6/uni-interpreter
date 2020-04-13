@@ -115,8 +115,10 @@ getVar vname p (State _ store scp) =
 
 -- TODO: I guess this should never happen, because to set a variable
 --       we have to get it first. Also PPos?
-setVar :: VarId -> State -> Error State
-setVar vId st = undefined
+-- This function does not perform the type check!!
+setVar :: VarId -> Var -> State -> Error State
+setVar vId val s@(State _ str _) = Ok $
+  s{ stateStore = str{ storeVars = Map.insert vId val $ storeVars str }}
 
 getTypeId :: Type PPos -> State -> Error TypeId
 getTypeId (TInt _) _ = Ok 1
