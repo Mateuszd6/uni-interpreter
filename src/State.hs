@@ -172,11 +172,6 @@ scope fun st = do
   st' <- fun st
   return st'{ stateScope = stateScope st }
 
-
-
-
-
-
 -- TODO: read this and decide if it stays.
 -- Generalized Error Monad (including Monad Transform) to combine error
 -- handling with with IO. This features an ErrorDetail type which allows us to
@@ -291,6 +286,6 @@ errorFromMaybe :: ErrorDetail -> Maybe a -> Error a
 errorFromMaybe _ (Just x) = Ok x
 errorFromMaybe det Nothing = Fail det
 
--- | Used to promote regular Error into ErrorT with any wrapped monad.
+-- | Promote regular Error into ErrorT with any wrapped monad.
 toErrorT :: Monad m => Error a -> ErrorT m a
 toErrorT = ErrorT . return

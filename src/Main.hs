@@ -206,16 +206,30 @@ evalLoopImpl expr stmt incStmt st = do
   -- lift $ print $ getVar "i" Nothing st'
   if cond
     then do
-      st'' <- evalStmt stmt st'
+      st'' <- catchContinue $ evalStmt stmt st'
       st''' <- case incStmt of -- If incStmt is specified evaluate it.
                  Nothing -> return st''
                  Just increm -> evalStmt increm st''
       evalLoopImpl expr stmt incStmt st'''
     else return st'
 
--- TODO: Move bottom and give cool generic name
+-- TODO: This dies
 catchBreakOrContinue :: ErrorT IO a -> IO (Error a)
 catchBreakOrContinue s = runErrorT s
+
+catchBreak :: ErrorT IO State -> ErrorT IO State
+catchBreak st = do
+    err_ <- lift $ runErrorT st
+    case err_ of
+      Flow FRBreak s -> toErrorT $ Ok s
+      _ -> toErrorT err_
+
+catchContinue :: ErrorT IO State -> ErrorT IO State
+catchContinue st = do
+    err_ <- lift $ runErrorT st
+    case err_ of
+      Flow FRContinue s -> toErrorT $ Ok s
+      _ -> toErrorT err_
 
 evalStmt :: Stmt PPos -> State -> ErrorT IO State
 
@@ -225,13 +239,7 @@ evalStmt (SIf _ expr stmt) st = evalIfStmtImpl expr stmt Nothing st
 evalStmt (SIfElse _ expr stmt elStmt) st = evalIfStmtImpl expr stmt (Just elStmt) st
 
 -- TODO: Should this be scoped?
-evalStmt (SWhile _ expr stmt) st =
-  let evaled = evalLoopImpl expr stmt Nothing st
-  in do
-    err_ <- lift $ catchBreakOrContinue evaled
-    case err_ of
-      Flow FRBreak s -> toErrorT $ Ok s
-      _ -> toErrorT err_
+evalStmt (SWhile _ expr stmt) st = catchBreak $ evalLoopImpl expr stmt Nothing st
 
 evalStmt e@(SFor _ (Ident iterName) eStart eEnd stmt) st = do
   (vStart, st') <- evalExpr eStart st
@@ -278,6 +286,7 @@ evalStmt (SAssign p0 (LValueVar p1 (Ident vname)) expr) st = do
   toErrorT $ setVar vId asgnVal st' -- TODO: Next this all should be handled by setvar.
 
 evalStmt (SBreak _) st = toErrorT $ Flow FRBreak st
+evalStmt (SCont _) st = toErrorT $ Flow FRContinue st
 
 evalStmt stmt st = do -- TODO: This dies!
   lift $ putStrLn ("tests.txt:" ++ showLinCol (getPos stmt)
