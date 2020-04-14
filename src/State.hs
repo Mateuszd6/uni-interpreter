@@ -25,17 +25,11 @@ data Var
   | VStruct { vStructTId :: Int, vStructVars :: Struct }
   deriving (Show)
 
+data Func = Func { funcBody :: Stmt PPos, funcRetT :: TypeId, funcScope :: Scope }
+  deriving (Show)
+
 -- TODO: User can return a struct from a scope which defines it!!!!
 -- Probably check in return?
-
--- TODO: Explain!!
-data Scope = Scope
-  {
-    scopeVars :: Map.Map String VarId,
-    scopeFuncs :: Map.Map String FunId,
-    scopeTypes :: Map.Map String TypeId
-  }
-  deriving (Show)
 
 data Store = Store
   {
@@ -43,12 +37,21 @@ data Store = Store
     -- TODO: Instead maybe should be PPos but can't include parser.
     --       Include this in parser?
     -- TODO: make a type instead of using tuple?
-    storeFuncs :: Map.Map FunId (Stmt (Maybe (Int, Int)), TypeId, Scope),
+    storeFuncs :: Map.Map FunId Func,
     -- storeTypes :: Map.Map TypeId () -- TODO!
 
     nextVarId :: Int,
     nextFuncId :: Int,
     nextTypeId :: Int
+  }
+  deriving (Show)
+
+-- TODO: Explain!!
+data Scope = Scope
+  {
+    scopeVars :: Map.Map String VarId,
+    scopeFuncs :: Map.Map String FunId,
+    scopeTypes :: Map.Map String TypeId
   }
   deriving (Show)
 
@@ -104,7 +107,7 @@ createVar name v s@(State _ str@(Store vars _ next _ _) scp@(Scope vnames _ _)) 
 createFunc :: String -> Stmt (Maybe (Int, Int)) -> TypeId -> State -> (FunId, State)
 createFunc name body ret s@(State _ str@(Store _ funcs _ next _) scp@(Scope _ fnames _)) =
   (next, s{
-      stateStore = str{ storeFuncs = Map.insert next (body, ret, scp) funcs,
+      stateStore = str{ storeFuncs = Map.insert next (Func body ret scp) funcs,
                         nextFuncId = next + 1 },
       stateScope = scp{ scopeFuncs = Map.insert name next fnames } })
 
@@ -115,11 +118,19 @@ createFunc name body ret s@(State _ str@(Store _ funcs _ next _) scp@(Scope _ fn
 
 -- | Get variable by name
 getVar :: String -> PPos -> State -> Error (VarId, Var)
-getVar vname p (State _ store scp) =
+getVar vname p (State _ str scp) =
   errorFromMaybe (EDVarNotFound vname p) $ do
   vId <- Map.lookup vname $ scopeVars scp -- Scope lookup.
-  var <- Map.lookup vId $ storeVars store -- Store lookup, should not fail.
+  var <- Map.lookup vId $ storeVars str -- Store lookup, should not fail.
   return (vId, var)
+
+getFunc :: String -> PPos -> State -> Error (FunId, Func)
+getFunc fname p (State _ str scp) =
+  errorFromMaybe (EDFuncNotFound fname p) $ do
+  fId <- Map.lookup fname $ scopeFuncs scp -- Scope lookup.
+  func <- Map.lookup fId $ storeFuncs str -- Store lookup, should not fail.
+  return (fId, func)
+
 
 -- TODO: I guess this should never happen, because to set a variable
 --       we have to get it first. Also PPos?

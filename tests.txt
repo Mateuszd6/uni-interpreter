@@ -1,9 +1,16 @@
+foo1 := 3;
+foo2 := 5;
 exmaple1 :: (x : int, y : int) -> int
 {
-    return y * x;
+    q := 3;
+    w := 4;
+    e := 5;
+    foo1 = q + w * e;
+    foo2 = foo1 + 3;
+    // return y * x;
 }
 
-foobar();
+exmaple1();
 
 i := 1;
 

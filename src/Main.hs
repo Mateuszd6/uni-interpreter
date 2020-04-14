@@ -51,7 +51,7 @@ runFile f = putStrLn f >> readFile f >>= run
 
 -- Evaluates integer binary expresion parametrized by the expression func.
 -- TODO: Show iface is needed only for debug, but is fullfiled for our use
-evalBinaryExpr :: (Show a, Show r) =>
+evalBinExpr :: (Show a, Show r) =>
                   (Var -> State -> PPos -> Error a) -> -- Convert Var to desired type.
                   (a -> a -> r) -> -- Func performed on wrapped value.
                   (r -> Var) -> -- Ctor that wraps computed value back to Var.
@@ -62,7 +62,7 @@ evalBinaryExpr :: (Show a, Show r) =>
 
 -- TODO: Evaluate from right to left like in C
 -- TODO: Ppos.
-evalBinaryExpr ofType func varCtor lhs rhs st = do
+evalBinExpr ofType func varCtor lhs rhs st = do
   -- The *Conv variables are unwraped value from vars with desired type.
 
   (evaledL, st') <- evalExpr lhs st
@@ -102,28 +102,41 @@ evalExpr (EBool _ boolVal) st = do
   lift $ putStrLn $ "Evaluated boolean of value: " ++ show bl
   return (VBool bl, st)
 
-evalExpr (EPlus _ lhs rhs) st = evalBinaryExpr ofTypeInt (+) VInt lhs rhs st
-evalExpr (EMinus _ lhs rhs) st = evalBinaryExpr ofTypeInt (-) VInt lhs rhs st
-evalExpr (ETimes _ lhs rhs) st = evalBinaryExpr ofTypeInt (*) VInt lhs rhs st
-evalExpr (EDiv _ lhs rhs) st = evalBinaryExpr ofTypeInt div VInt lhs rhs st -- TODO: Double check that
-evalExpr (EPow _ lhs rhs) st = evalBinaryExpr ofTypeInt (^) VInt lhs rhs st
+evalExpr (EPlus _ lhs rhs) st = evalBinExpr ofTypeInt (+) VInt lhs rhs st
+evalExpr (EMinus _ lhs rhs) st = evalBinExpr ofTypeInt (-) VInt lhs rhs st
+evalExpr (ETimes _ lhs rhs) st = evalBinExpr ofTypeInt (*) VInt lhs rhs st
+evalExpr (EDiv _ lhs rhs) st = evalBinExpr ofTypeInt div VInt lhs rhs st -- TODO: Double check that
+evalExpr (EPow _ lhs rhs) st = evalBinExpr ofTypeInt (^) VInt lhs rhs st
 
-evalExpr (EEq _ lhs rhs) st = evalBinaryExpr ofTypeInt (==) VBool lhs rhs st
-evalExpr (ENeq _ lhs rhs) st = evalBinaryExpr ofTypeInt (/=) VBool lhs rhs st
-evalExpr (EGeq _ lhs rhs) st = evalBinaryExpr ofTypeInt (>=) VBool lhs rhs st
-evalExpr (ELeq _ lhs rhs) st = evalBinaryExpr ofTypeInt (<=) VBool lhs rhs st
-evalExpr (EGt _ lhs rhs) st = evalBinaryExpr ofTypeInt (>) VBool lhs rhs st
-evalExpr (ELt _ lhs rhs) st = evalBinaryExpr ofTypeInt (<) VBool lhs rhs st
+evalExpr (EEq _ lhs rhs) st = evalBinExpr ofTypeInt (==) VBool lhs rhs st
+evalExpr (ENeq _ lhs rhs) st = evalBinExpr ofTypeInt (/=) VBool lhs rhs st
+evalExpr (EGeq _ lhs rhs) st = evalBinExpr ofTypeInt (>=) VBool lhs rhs st
+evalExpr (ELeq _ lhs rhs) st = evalBinExpr ofTypeInt (<=) VBool lhs rhs st
+evalExpr (EGt _ lhs rhs) st = evalBinExpr ofTypeInt (>) VBool lhs rhs st
+evalExpr (ELt _ lhs rhs) st = evalBinExpr ofTypeInt (<) VBool lhs rhs st
 
-evalExpr (ELor _ lhs rhs) st = evalBinaryExpr ofTypeBool (||) VBool lhs rhs st
-evalExpr (ELand _ lhs rhs) st = evalBinaryExpr ofTypeBool (&&) VBool lhs rhs st
-evalExpr (EXor _ lhs rhs) st = evalBinaryExpr ofTypeBool xor VBool lhs rhs st
+evalExpr (ELor _ lhs rhs) st = evalBinExpr ofTypeBool (||) VBool lhs rhs st
+evalExpr (ELand _ lhs rhs) st = evalBinExpr ofTypeBool (&&) VBool lhs rhs st
+evalExpr (EXor _ lhs rhs) st = evalBinExpr ofTypeBool xor VBool lhs rhs st
 
-evalExpr (ECat _ lhs rhs) st = evalBinaryExpr ofTypeString (++) VString lhs rhs st
+evalExpr (ECat _ lhs rhs) st = evalBinExpr ofTypeString (++) VString lhs rhs st
 
 evalExpr (ELValue p (LValueVar _ (Ident vname))) st = do
   (_, v) <- toErrorT $ getVar vname p st
   return (v, st)
+
+evalExpr (EFnCall p (Ident fname) params) st = do
+  lift $ putStrLn ("tests.txt:" ++ showLinCol p
+                    ++ " calling function of name: `" ++ fname ++ "'"
+                    ++ " which does not work yet.")
+  func <- toErrorT $ getFunc fname p st >>= (return . snd)
+  -- lift $ putStrLn $ "Function id: " ++ show fid
+  lift $ putStrLn $ "Function def: " ++ show func
+
+  let callFun s = let callState = s{ stateScope = funcScope func }
+                  in evalStmt (funcBody func) callState
+  st' <- scope callFun st
+  return $ (undefined, st')
 
 evalExpr (ELValue _ _) _ = undefined
 
@@ -192,14 +205,14 @@ evalLoopImpl expr stmt incStmt st = do
     then do
       st'' <- evalStmt stmt st'
       st''' <- case incStmt of -- If incStmt is specified evaluate it.
-                Nothing -> return st''
-                Just increm -> evalStmt increm st''
+                 Nothing -> return st''
+                 Just increm -> evalStmt increm st''
       evalLoopImpl expr stmt incStmt st'''
     else return st'
 
 evalStmt :: Stmt PPos -> State -> ErrorT IO State
 
-evalStmt (SBlock Nothing _ stmts) st = scope (\s -> foldM (flip evalStmt) s stmts) st
+evalStmt (SBlock _ _ stmts) st = scope (\s -> foldM (flip evalStmt) s stmts) st
 
 evalStmt (SIf _ expr stmt) st = evalIfStmtImpl expr stmt Nothing st
 evalStmt (SIfElse _ expr stmt elStmt) st = evalIfStmtImpl expr stmt (Just elStmt) st
