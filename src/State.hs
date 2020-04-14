@@ -2,14 +2,12 @@
 -- | All program-state related classes and functions.
 module State where -- TODO: rename to runtime?
 
+import Control.Monad.Trans.Class (lift, MonadTrans(..))
 import qualified Data.Map.Strict as Map -- TODO: Explain why strict instead of lazy.
 import qualified Data.Maybe as Maybe
 import Data.List (find)
 
 import AbsLanguage
-
-import Parser
-import Error
 
 type VarId = Int
 type FunId = Int
@@ -173,3 +171,126 @@ scope :: (State -> ErrorT IO State) -> State -> ErrorT IO State
 scope fun st = do
   st' <- fun st
   return st'{ stateScope = stateScope st }
+
+
+
+
+
+
+-- TODO: read this and decide if it stays.
+-- Generalized Error Monad (including Monad Transform) to combine error
+-- handling with with IO. This features an ErrorDetail type which allows us to
+-- give user many detailed information about an error. This is laregly taken
+-- from MaybeT implementation in the Haskell standard library.
+
+type PPos = Maybe (Int, Int) -- TODO: Move it upper.
+
+data ErrorDetail
+  = EDVarNotFound String PPos
+  | EDVarNotInitialized PPos
+  | EDFuncNotFound String PPos
+  | EDParsingError String
+  | EDTypeError String String PPos
+  | EDTypeNotFound String PPos
+  | NotImplemented String -- TODO? This should not happen in the final version
+
+-- TODO: hardcoded!!!
+file_ :: String
+file_ = "tests.txt"
+
+showFCol :: PPos -> String
+showFCol (Just (l, c)) = file_ ++ ":" ++ show l ++ ":" ++ show c ++ ": "
+showFCol Nothing = file_ ++ ": "
+
+-- TODO: unify showfcol to be called somewhere else. and do getpos for error detail.
+instance Show ErrorDetail where
+  show (EDVarNotFound name p) = showFCol p ++ "Variable `" ++ name ++ "' not in scope."
+  show (EDVarNotInitialized p) = showFCol p ++ "Variable was not initialized."
+  show (EDFuncNotFound name p) = showFCol p ++ "Function `" ++ name ++ "' not in scope."
+  show (EDParsingError str) = "Parsing error: " ++ str ++ "."
+  show (EDTypeError expected got p) = showFCol p ++ "Type error: "
+                                      ++ "expected `" ++ expected ++ "'"
+                                      ++ ", got `" ++ got ++ "'."
+  show (EDTypeNotFound tname p) = showFCol p ++ "Type `" ++ tname ++ "' not in scope."
+  show _ = "Unknown error: No idea what is happening." -- TODO.
+
+data FlowReason
+  = FRBreak
+  | FRContinue
+  | FRReturn Var
+  | FRReturnVoid
+  deriving (Show)
+
+data Error a
+  = Ok a
+  | Flow FlowReason State
+  | Fail ErrorDetail
+  deriving (Show)
+
+instance Functor Error  where
+  fmap _ (Fail reason) = Fail reason
+  fmap _ (Flow r s) = Flow r s
+  fmap f (Ok a) = Ok (f a)
+
+instance Applicative Error where
+  pure = Ok
+
+  Ok f <*> m = fmap f m
+  Flow r s <*> _m = Flow r s
+  Fail reason <*> _m = Fail reason
+
+  Ok _m1 *> m2 = m2
+  Flow r s *> _m2 = Flow r s
+  Fail reason *> _m2 = Fail reason -- TODO(MD): Invesitgate
+
+instance Monad Error where
+  (Ok x) >>= k = k x
+  Flow r s >>= _ = Flow r s
+  Fail reason >>= _ = Fail reason
+
+  (>>) = (*>) -- TODO(MD): Invesitgate
+
+newtype ErrorT m a = ErrorT { runErrorT :: m (Error a) }
+
+instance MonadTrans ErrorT where
+  lift = ErrorT . fmap Ok
+
+instance (Monad m) => Monad (ErrorT m) where
+  return = ErrorT . return . Ok
+
+  x >>= f = ErrorT $ do
+      v <- runErrorT x
+      case v of
+          Fail reason -> return $ Fail reason
+          Flow r s -> return $ Flow r s
+          Ok w -> runErrorT (f w)
+
+instance (Functor m) => Functor (ErrorT m) where
+  fmap f = ErrorT . fmap (fmap f) . runErrorT
+
+instance (Functor m, Monad m) => Applicative (ErrorT m) where
+  pure = ErrorT . return . Ok
+
+  mf <*> mx = ErrorT $ do
+      mb_f <- runErrorT mf
+      case mb_f of
+          Fail reason -> return $ Fail reason
+          Flow r s -> return $ Flow r s
+          Ok f -> do
+              mb_x <- runErrorT mx
+              case mb_x of
+                  Fail reason -> return $ Fail reason
+                  Flow r s -> return $ Flow r s
+                  Ok x  -> return (Ok (f x))
+
+  m *> k = m >> k -- TODO(MD): Invesitgate
+
+-- | Convert Maybe a to Error a. If value is Nothing return an error with
+--   provided description.
+errorFromMaybe :: ErrorDetail -> Maybe a -> Error a
+errorFromMaybe _ (Just x) = Ok x
+errorFromMaybe det Nothing = Fail det
+
+-- | Used to promote regular Error into ErrorT with any wrapped monad.
+toErrorT :: Monad m => Error a -> ErrorT m a
+toErrorT = ErrorT . return

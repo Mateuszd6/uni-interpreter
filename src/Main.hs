@@ -9,7 +9,6 @@ import Control.Monad.Trans.Class (lift, MonadTrans(..))
 
 import AbsLanguage -- TODO: Qualify
 
-import Error
 import State
 import Parser
 
@@ -204,7 +203,7 @@ evalLoopImpl expr stmt incStmt st = do
   (v, st') <- evalExpr expr st
   cond <- toErrorT $ ofTypeBool v st' (getPos expr)
   lift $ putStrLn $ "evaluated loop condition: " ++ show cond
-  lift $ print $ getVar "i" Nothing st'
+  -- lift $ print $ getVar "i" Nothing st'
   if cond
     then do
       st'' <- evalStmt stmt st'
@@ -214,6 +213,10 @@ evalLoopImpl expr stmt incStmt st = do
       evalLoopImpl expr stmt incStmt st'''
     else return st'
 
+-- TODO: Move bottom and give cool generic name
+catchBreakOrContinue :: ErrorT IO a -> IO (Error a)
+catchBreakOrContinue s = runErrorT s
+
 evalStmt :: Stmt PPos -> State -> ErrorT IO State
 
 evalStmt (SBlock _ _ stmts) st = scope (\s -> foldM (flip evalStmt) s stmts) st
@@ -222,7 +225,13 @@ evalStmt (SIf _ expr stmt) st = evalIfStmtImpl expr stmt Nothing st
 evalStmt (SIfElse _ expr stmt elStmt) st = evalIfStmtImpl expr stmt (Just elStmt) st
 
 -- TODO: Should this be scoped?
-evalStmt (SWhile _ expr stmt) st = evalLoopImpl expr stmt Nothing st
+evalStmt (SWhile _ expr stmt) st =
+  let evaled = evalLoopImpl expr stmt Nothing st
+  in do
+    err_ <- lift $ catchBreakOrContinue evaled
+    case err_ of
+      Flow FRBreak s -> toErrorT $ Ok s
+      _ -> toErrorT err_
 
 evalStmt e@(SFor _ (Ident iterName) eStart eEnd stmt) st = do
   (vStart, st') <- evalExpr eStart st
@@ -268,6 +277,8 @@ evalStmt (SAssign p0 (LValueVar p1 (Ident vname)) expr) st = do
   toErrorT $ enforceType var (varTypeId asgnVal) st' p0
   toErrorT $ setVar vId asgnVal st' -- TODO: Next this all should be handled by setvar.
 
+evalStmt (SBreak _) st = toErrorT $ Flow FRBreak st
+
 evalStmt stmt st = do -- TODO: This dies!
   lift $ putStrLn ("tests.txt:" ++ showLinCol (getPos stmt)
                     ++ " evaluating statement in state: "
@@ -289,6 +300,7 @@ run pText = do
   result <- runErrorT (toErrorT (parseProgram pText) >>= runProgram)
   case result of
     Ok () -> exitSuccess
+    Flow r s -> (putStrLn $ "Flow is broken: " ++ (show r) ++ "\n") >> dumpState s >> exitFailure
     Fail reason -> print reason >> exitFailure
 
 usage :: IO ()

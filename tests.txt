@@ -1,10 +1,15 @@
-fuck : int;
-fuck = 3;
-
-if (4 > fuck)
+x := 1;
+while (true)
 {
-    foobar = 1;
+    if (x > 5)
+        break;
+
+    x = x + 1;
 }
+
+y := 1;
+fuck_haskell();
+
 
 foo1 := 3;
 foo2 := 5;

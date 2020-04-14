@@ -11,11 +11,11 @@ import ParLanguage (pProgram, myLexer)
 import AbsLanguage
 import qualified ErrM
 
-import Error
+import State
 
 -- TODO: describe that it is a parsing position.
 -- TODO: Note that the program requires speciyfic version of BNFC
-type PPos = Maybe (Int, Int)
+-- type PPos = Maybe (Int, Int)
 
 -- Do lexing, then parsing. Lexing can't fail and by combing these functions we
 -- don't have to include LexLanguage in this file. Instead of using ErrM
