@@ -1,3 +1,11 @@
+fuck : int;
+fuck = 3;
+
+if (4 > fuck)
+{
+    foobar = 1;
+}
+
 foo1 := 3;
 foo2 := 5;
 exmaple1 :: (x : int, y : int) -> int

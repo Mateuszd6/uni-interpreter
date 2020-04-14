@@ -10,6 +10,7 @@ type PPos_ = Maybe (Int, Int) -- TODO: Kill repeating definitions of PPos
 
 data ErrorDetail
   = EDVarNotFound String PPos_
+  | EDVarNotInitialized PPos_
   | EDFuncNotFound String PPos_
   | EDParsingError String
   | EDTypeError String String PPos_
@@ -27,6 +28,7 @@ showFCol Nothing = file_ ++ ": "
 -- TODO: unify showfcol to be called somewhere else. and do getpos for error detail.
 instance Show ErrorDetail where
   show (EDVarNotFound name p) = showFCol p ++ "Variable `" ++ name ++ "' not in scope."
+  show (EDVarNotInitialized p) = showFCol p ++ "Variable was not initialized."
   show (EDFuncNotFound name p) = showFCol p ++ "Function `" ++ name ++ "' not in scope."
   show (EDParsingError str) = "Parsing error: " ++ str ++ "."
   show (EDTypeError expected got p) = showFCol p ++ "Type error: "

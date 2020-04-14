@@ -17,25 +17,29 @@ showLinCol :: PPos -> String
 showLinCol (Just (line, col)) = show line ++ ":" ++ show col ++ ": " -- TODO
 showLinCol Nothing = ""
 
--- TODO: Refactor the '?': use getTypeNameForED !
 ofTypeInt :: Var -> State -> PPos -> Error Int
 ofTypeInt (VInt v) _ _ = Ok v
+ofTypeInt (VUninitialized 1) _ p = Fail $ EDVarNotInitialized p
 ofTypeInt var st p = Fail $
   EDTypeError "int" (getTypeNameForED (varTypeId var) st) p
 
 ofTypeBool :: Var -> State -> PPos -> Error Bool
 ofTypeBool (VBool v) _ _ = Ok v
+ofTypeBool (VUninitialized 2) _ p = Fail $ EDVarNotInitialized p
 ofTypeBool var st p = Fail $
   EDTypeError "bool" (getTypeNameForED (varTypeId var) st) p
 
 ofTypeString :: Var -> State -> PPos -> Error String
 ofTypeString (VString v) _ _ = Ok v
+ofTypeString (VUninitialized 3) _ p = Fail $ EDVarNotInitialized p
 ofTypeString var st p = Fail $
   EDTypeError "string" (getTypeNameForED (varTypeId var) st) p
 
 ofTypeStruct :: TypeId -> Var -> State -> PPos -> Error Struct
 ofTypeStruct desiredId (VStruct tId v) _ _
   | tId == desiredId = Ok v
+ofTypeStruct desiredId (VUninitialized tId) _ p
+  | tId == desiredId = Fail $ EDVarNotInitialized p
 ofTypeStruct desiredId var st p = Fail $
   EDTypeError (getTypeNameForED desiredId st) (getTypeNameForED (varTypeId var) st) p
 
@@ -169,7 +173,7 @@ evalVarDeclImpl vname tId p var st = do
 evalVarDecl :: VarDecl PPos -> State -> ErrorT IO State
 evalVarDecl (DVDecl p (Ident vname) tp) st = do
   tId <- toErrorT $ getTypeId tp st
-  evalVarDeclImpl vname tId p VEmpty st
+  evalVarDeclImpl vname tId p (VUninitialized tId) st
 
 evalVarDecl (DVDeclAsgn p (Ident vname) tp expr) st = do
   (v, st') <- evalExpr expr st

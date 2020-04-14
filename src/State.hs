@@ -18,7 +18,7 @@ type TypeId = Int
 type Struct = Map.Map String Var
 
 data Var
-  = VEmpty
+  = VUninitialized { vType :: TypeId } -- Unitinialized, but knows its type.
   | VInt Int
   | VBool Bool
   | VString String
@@ -162,7 +162,8 @@ getTypeNameForED tId (State _ _ scp)
 -- typeId is used to determine variable type. We can't use name becasue
 -- TODO: explain and decide whether it is used or not.
 varTypeId :: Var -> Int
-varTypeId VEmpty = 0 -- TODO: possibly use Maybe instead?
+-- varTypeId VEmpty = 0 -- TODO: possibly use Maybe instead?
+varTypeId (VUninitialized tid) = tid -- Permitive types have constant typeids.
 varTypeId (VInt _) = 1 -- Permitive types have constant typeids.
 varTypeId (VBool _) = 2
 varTypeId (VString _) = 3
