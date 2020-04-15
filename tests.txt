@@ -1,5 +1,15 @@
-i := 0;
-j := 0;
+test :: (x : int) -> int {
+    while (true) {
+        break;
+        continue;
+    }
+
+    x := 3;
+    return 4;
+}
+
+if (test(1) < 1)
+   die();
 
 while (i < 5)
 {
@@ -10,6 +20,9 @@ while (i < 5)
     j = j + 1;
 }
 
+return;
+
+/*
 k := 0;
 fuck_haskell();
 
@@ -499,3 +512,4 @@ _ = foobar();
 // in his talk 'Ideas for a new programming language for games'. When he
 // described something similar (syntax is slightly different that what I've came
 // up with): https://www.youtube.com/watch?v=TH9VCN6UkyQ .
+*/

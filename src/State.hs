@@ -17,13 +17,18 @@ type Struct = Map.Map String Var
 
 data Var
   = VUninitialized { vType :: TypeId } -- Unitinialized, but knows its type.
+  | VEmpty
   | VInt Int
   | VBool Bool
   | VString String
   | VStruct { vStructTId :: Int, vStructVars :: Struct }
   deriving (Show)
 
-data Func = Func { funcBody :: Stmt PPos, funcRetT :: TypeId, funcScope :: Scope }
+type Param = (String, TypeId)
+data Func = Func { funcBody :: Stmt PPos,
+                   funcRetT :: TypeId,
+                   funcParams :: [Param],
+                   funcScope :: Scope }
   deriving (Show)
 
 -- TODO: User can return a struct from a scope which defines it!!!!
@@ -102,10 +107,10 @@ createVar name v s@(State _ str@(Store vars _ next _ _) scp@(Scope vnames _ _)) 
                         nextVarId = next + 1 },
       stateScope = scp{ scopeVars = Map.insert name next vnames } })
 
-createFunc :: String -> Stmt (Maybe (Int, Int)) -> TypeId -> State -> (FunId, State)
-createFunc name body ret s@(State _ str@(Store _ funcs _ next _) scp@(Scope _ fnames _)) =
+createFunc :: String -> Stmt PPos -> [Param] -> TypeId -> State -> (FunId, State)
+createFunc name body params ret s@(State _ str@(Store _ funcs _ next _) scp@(Scope _ fnames _)) =
   (next, s{
-      stateStore = str{ storeFuncs = Map.insert next (Func body ret scp) funcs,
+      stateStore = str{ storeFuncs = Map.insert next (Func body ret params scp) funcs,
                         nextFuncId = next + 1 },
       stateScope = scp{ scopeFuncs = Map.insert name next fnames } })
 
@@ -149,7 +154,7 @@ getTypeId (TUser p (Ident tname)) (State _ _ scp) =
 --   reporting the type error, in case when program is exploding anyway.
 getTypeNameForED :: TypeId -> State -> String
 getTypeNameForED tId (State _ _ scp)
-  | tId == 0 = "void" -- TODO: KILL IT!
+  | tId == 0 = "void"
   | tId == 1 = "int"
   | tId == 2 = "bool"
   | tId == 3 = "string"
@@ -160,8 +165,8 @@ getTypeNameForED tId (State _ _ scp)
 -- typeId is used to determine variable type. We can't use name becasue
 -- TODO: explain and decide whether it is used or not.
 varTypeId :: Var -> Int
--- varTypeId VEmpty = 0 -- TODO: possibly use Maybe instead?
 varTypeId (VUninitialized tid) = tid -- Permitive types have constant typeids.
+varTypeId VEmpty = 0
 varTypeId (VInt _) = 1 -- Permitive types have constant typeids.
 varTypeId (VBool _) = 2
 varTypeId (VString _) = 3
@@ -188,6 +193,13 @@ data ErrorDetail
   | EDTypeError String String PPos
   | EDTypeNotFound String PPos
   | NotImplemented String -- TODO? This should not happen in the final version
+  | EDUnexpectedBreak PPos
+  | EDUnexpectedContinue PPos
+  | EDUnexpectedReturn PPos
+  | EDNoReturn PPos
+  | EDNoReturnNonVoid PPos -- TODO: rename
+  | EDReturnVoid PPos
+
 
 -- TODO: hardcoded!!!
 file_ :: String
@@ -207,13 +219,18 @@ instance Show ErrorDetail where
                                       ++ "expected `" ++ expected ++ "'"
                                       ++ ", got `" ++ got ++ "'."
   show (EDTypeNotFound tname p) = showFCol p ++ "Type `" ++ tname ++ "' not in scope."
+  show (EDUnexpectedBreak p) = showFCol p ++ "`break' is not allowed here."
+  show (EDUnexpectedContinue p) = showFCol p ++ "`continue' is not allowed here."
+  show (EDUnexpectedReturn p) = showFCol p ++ "`return' is not allowed here."
+  show (EDNoReturn p) = showFCol p ++ "Function that returns a value didn't return."
+  show (EDNoReturnNonVoid p) = showFCol p ++ "Void function cannot return a value."
+  show (EDReturnVoid p) = showFCol p ++ "Return without a value when value was expected."
   show _ = "Unknown error: No idea what is happening." -- TODO.
 
 data FlowReason
-  = FRBreak
-  | FRContinue
-  | FRReturn Var
-  | FRReturnVoid
+  = FRBreak PPos
+  | FRContinue PPos
+  | FRReturn PPos Var
   deriving (Show)
 
 data Error a

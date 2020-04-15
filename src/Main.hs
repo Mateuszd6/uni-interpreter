@@ -88,7 +88,6 @@ evalExpr :: Expr PPos -> State -> ErrorT IO (Var, State)
   -- EIife a (FunDecl a) (InvokeExprList a)
   -- ELValue a (LValue a)
 
--- New try:
 evalExpr (EInt _ intVal) st = do
   let res = VInt $ fromInteger intVal
   lift $ putStrLn $ "Evaluated integer of value: " ++ show intVal
@@ -136,10 +135,10 @@ evalExpr (EFnCall p (Ident fname) params) st = do
   -- lift $ putStrLn $ "Function id: " ++ show fid
   lift $ putStrLn $ "Function def: " ++ show func
 
-  let callFun s = let callState = s{ stateScope = funcScope func }
-                  in evalStmt (funcBody func) callState
-  st' <- scope callFun st
-  return $ (undefined, st')
+  let callFun s = evalStmt (funcBody func) s{ stateScope = funcScope func }
+      returnsValue = funcRetT func /= 0 -- TODO: Hardcode 0 = VEmpty
+      returnHndl = if returnsValue then expectReturnValue else catchReturnVoid
+  returnHndl p $ dontAllowBreakContinue $ scope callFun st
 
 evalExpr (ELValue _ _) _ = undefined
 
@@ -213,23 +212,64 @@ evalLoopImpl expr stmt incStmt st = do
       evalLoopImpl expr stmt incStmt st'''
     else return st'
 
--- TODO: This dies
-catchBreakOrContinue :: ErrorT IO a -> IO (Error a)
-catchBreakOrContinue s = runErrorT s
-
 catchBreak :: ErrorT IO State -> ErrorT IO State
 catchBreak st = do
-    err_ <- lift $ runErrorT st
-    case err_ of
-      Flow FRBreak s -> toErrorT $ Ok s
-      _ -> toErrorT err_
+  err_ <- lift $ runErrorT st
+  case err_ of
+    Flow (FRBreak _) s -> toErrorT $ Ok s
+    _ -> toErrorT err_
 
 catchContinue :: ErrorT IO State -> ErrorT IO State
 catchContinue st = do
-    err_ <- lift $ runErrorT st
-    case err_ of
-      Flow FRContinue s -> toErrorT $ Ok s
-      _ -> toErrorT err_
+  err_ <- lift $ runErrorT st
+  case err_ of
+    Flow (FRContinue _) s -> toErrorT $ Ok s
+    _ -> toErrorT err_
+
+catchReturnVoid :: PPos -> ErrorT IO State -> ErrorT IO (Var, State)
+catchReturnVoid _ st = do
+  err_ <- lift $ runErrorT st
+  toErrorT $ case err_ of -- TODO: refactor above to work like this one.
+    Flow (FRReturn _ VEmpty) st' -> Ok (VEmpty, st')
+    Flow (FRReturn p _) _ -> Fail $ EDNoReturnNonVoid p
+    Ok st' -> Ok (VEmpty, st')
+    Flow x y -> Flow x y
+    Fail r -> Fail r
+
+expectReturnValue :: PPos -> ErrorT IO State -> ErrorT IO (Var, State)
+expectReturnValue p st = do
+  err_ <- lift $ runErrorT st
+  toErrorT $ case err_ of -- TODO: refactor above to work like this one.
+    Flow (FRReturn p0 VEmpty) _ -> Fail $ EDReturnVoid p0
+    Flow (FRReturn _ v) st' -> Ok (v, st')
+    Fail r -> Fail r
+    _ -> Fail $ EDNoReturn p
+
+dontAllowBreakContinue :: ErrorT IO a -> ErrorT IO a
+dontAllowBreakContinue st = do
+  err_ <- lift $ runErrorT st
+  toErrorT $ case err_ of -- TODO: refactor above to work like this one.
+    Flow (FRBreak p) _ -> Fail $ EDUnexpectedBreak p
+    Flow (FRContinue p) _ -> Fail $ EDUnexpectedContinue p
+    _ -> err_
+
+dontAllowReturn :: ErrorT IO a -> ErrorT IO a
+dontAllowReturn st = do
+  err_ <- lift $ runErrorT st
+  toErrorT $ case err_ of -- TODO: refactor above to work like this one.
+    Flow (FRReturn p _) _ -> Fail $ EDUnexpectedReturn p
+    _ -> err_
+
+funcRetTToTypeId :: FuncRetT PPos -> State -> Error TypeId
+funcRetTToTypeId (FRTSingle _ t) st = getTypeId t st
+funcRetTToTypeId (FRTTuple _ _) _ = undefined
+funcRetTToTypeId (FRTEmpty _) _ = Ok 0
+
+funcToParams :: FunParams PPos -> State -> Error [Param]
+funcToParams (FPEmpty _) _ = Ok []
+funcToParams (FPList _ declParams) st =
+  mapM (\(DDeclBasic _ (Ident n) t) -> getTypeId t st >>= \tId -> return (n, tId))
+       declParams
 
 evalStmt :: Stmt PPos -> State -> ErrorT IO State
 
@@ -272,11 +312,15 @@ evalStmt e@(SFor _ (Ident iterName) eStart eEnd stmt) st = do
 evalStmt (SExpr _ expr) st = evalExpr expr st >>= (return . snd)
 
 evalStmt (SVDecl _ vdecl) st = evalVarDecl vdecl st
+
 evalStmt (SFDecl p (Ident fname) (FDDefault _ params bd funRet stmts)) st = do
   lift $ putStrLn $ showFCol p ++ "Declaring function named `" ++ fname ++ "'."
-  let body = SBlock p bd stmts -- TODO: Using Sblock is dangerous because bind
-                               -- may eliminate function arguments.
-      st' = snd $ createFunc fname body 0 st -- TODO: 0 means vempty - don't hardcode
+  -- TODO: Using Sblock is dangerous because bind  may eliminate function arguments.
+  tId <- toErrorT $ funcRetTToTypeId funRet st
+  fParams <- toErrorT $ funcToParams params st
+  let body = SBlock p bd stmts
+
+      st' = snd $ createFunc fname body fParams tId st -- TODO: 0 means vempty - don't hardcode
   return st'
 
 evalStmt (SAssign p0 (LValueVar p1 (Ident vname)) expr) st = do
@@ -285,8 +329,14 @@ evalStmt (SAssign p0 (LValueVar p1 (Ident vname)) expr) st = do
   toErrorT $ enforceType var (varTypeId asgnVal) st' p0
   toErrorT $ setVar vId asgnVal st' -- TODO: Next this all should be handled by setvar.
 
-evalStmt (SBreak _) st = toErrorT $ Flow FRBreak st
-evalStmt (SCont _) st = toErrorT $ Flow FRContinue st
+evalStmt (SReturn p (RExNone _)) st = toErrorT $ Flow (FRReturn p VEmpty) st
+evalStmt (SReturn p (RExRegular _ (EOTRegular _ expr))) st = do
+  (result, st') <- evalExpr expr st
+  toErrorT $ Flow (FRReturn p result) st'
+evalStmt (SReturn _ (RExRegular _ (EOTTuple _ _))) _ = undefined
+
+evalStmt (SBreak p) st = toErrorT $ Flow (FRBreak p) st
+evalStmt (SCont p) st = toErrorT $ Flow (FRContinue p) st
 
 evalStmt stmt st = do -- TODO: This dies!
   lift $ putStrLn ("tests.txt:" ++ showLinCol (getPos stmt)
@@ -298,9 +348,11 @@ evalStmt stmt st = do -- TODO: This dies!
   -- return st { counter = counter st + 1 }
   return undefined
 
--- Evaluate program in initial state.
+-- Evaluate program in initial state. TODO: rename to eval program?
 runProgram :: Program PPos -> ErrorT IO ()
-runProgram (Prog _ stmts) = foldM_ (flip evalStmt) tempDefaultState stmts
+runProgram (Prog _ stmts) = dontAllowBreakContinue $
+                            dontAllowReturn $
+                            foldM_ (flip evalStmt) tempDefaultState stmts
 
 run :: String -> IO ()
 run pText = do
@@ -309,7 +361,8 @@ run pText = do
   result <- runErrorT (toErrorT (parseProgram pText) >>= runProgram)
   case result of
     Ok () -> exitSuccess
-    Flow r s -> (putStrLn $ "Flow is broken: " ++ (show r) ++ "\n") >> dumpState s >> exitFailure
+    -- TODO: This can't happen:
+    Flow r _ -> putStrLn ("Flow is broken: " ++ show r ++ "\n") >> exitFailure
     Fail reason -> print reason >> exitFailure
 
 usage :: IO ()

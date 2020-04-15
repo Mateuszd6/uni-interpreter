@@ -38,7 +38,7 @@ test :
 	./interpreter < ./tests.txt
 
 lint :
-	hlint ./src/Main.hs ./src/Error.hs ./src/State.hs ./src/Parser.hs
+	hlint ./src/Main.hs ./src/State.hs ./src/Parser.hs
 
 package : clean all
 	-rm -rf $(PKGNAME)
