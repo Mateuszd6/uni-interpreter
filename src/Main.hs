@@ -1,5 +1,9 @@
 module Main where -- TODO: This line is only to kill unused func warnings.
 
+-- TODO: Void variable can be the RHS on the deduced type.
+-- TODO: It is possible to make a struct of name 'void'
+-- TODO: Reserved names for structs and functions.
+
 -- TODO: Qualify imports
 import Data.Bits (xor)
 -- import System.Environment (getArgs)
@@ -42,6 +46,11 @@ ofTypeStruct desiredId (VUninitialized tId) _ p
 ofTypeStruct desiredId var st p = Fail $
   EDTypeError (getTypeNameForED desiredId st) (getTypeNameForED (varTypeId var) st) p
 
+enforce :: Bool -> ErrorDetail -> Error ()
+enforce cond err
+  | cond = Ok ()
+  | otherwise = Fail err
+
 -- | Make sure the var is of the desired type or fail with a TypeError.
 enforceType :: Var -> TypeId -> State -> PPos -> Error ()
 enforceType v tId st p
@@ -81,6 +90,64 @@ evalBinExpr ofType func varCtor lhs rhs st = do
   -- Now use the ctor to wrap calculated value back into Var type.
   return (varCtor $ evaledLConv `func` evaledRConv, st'')
 
+-- Use foldr becasue we wan't to evaluate args from right to left like C does.
+-- TODO: https://stackoverflow.com/questions/17055527/lifting-foldr-to-monad
+foldrM :: Monad m => (a -> b -> m b) -> b -> [a] -> m b
+foldrM _ d [] = return d
+foldrM f d (x:xs) = foldrM f d xs >>= f x
+
+fnCallParams :: InvokeExprList PPos -> State -> ErrorT IO ([Var], State)
+fnCallParams (IELEmpty _) st = toErrorT $ Ok ([], st)
+
+-- TODO: Try to save ppos so that erorss are nicer here.
+fnCallParams (IELDefault _ exprs) st =
+  foldrM (\ex (vars, s) -> evalExpr ex s >>= \(v, s') -> return (v:vars, s'))
+         ([], st)
+         exprs
+
+isBuiltinFunc :: Func -> Bool
+isBuiltinFunc (Func fid _ _ _ _)
+  | fid >= 1 && fid <= 4 = True -- TODO: No hardcode.
+  | otherwise = False
+
+executeBuiltin :: Func -> State -> ErrorT IO State
+executeBuiltin (Func 1 _ _ _ _) st = do
+  int <- toErrorT $ getVar "val" Nothing st
+         >>= (return . snd)
+         >>= \v -> ofTypeInt v st Nothing
+  lift $ putStr $ show int
+  return st
+
+executeBuiltin (Func 2 _ _ _ _) st = do
+  bool <- toErrorT $ getVar "val" Nothing st
+         >>= (return . snd)
+         >>= \v -> ofTypeBool v st Nothing
+  lift $ putStr $ show bool
+  return st
+
+-- TODO: Would be cool to get line number here.
+executeBuiltin (Func 4 _ _ _ _) st = do
+  str <- toErrorT $ getVar "val" Nothing st
+         >>= (return . snd)
+         >>= \v -> ofTypeString v st Nothing
+  lift $ putStrLn ("Program execution died: " ++ str)
+    >> exitFailure
+    >> return undefined -- Obviously not reached.
+
+executeBuiltin _ _ =
+  error "This is not a builtin function. This should not happen."
+
+-- Value is returned in a tricky way through 'Flow' type ctor.
+evalFunction :: Func -> [Var] -> PPos -> State -> ErrorT IO State
+evalFunction func invokeP p st = do
+  st' <- toErrorT $
+    foldrM (\(par, (pname, tId)) s -> enforceType par tId s p >>
+                                      Ok (snd $ createVar pname par s))
+           st { stateScope = funcScope func } $
+           zip invokeP $ funcParams func
+
+  if isBuiltinFunc func then executeBuiltin func st'
+                        else evalStmt (funcBody func) st'
 
 evalExpr :: Expr PPos -> State -> ErrorT IO (Var, State)
   -- TODO: Left:
@@ -94,7 +161,9 @@ evalExpr (EInt _ intVal) st = do
   return (res, st)
 
 evalExpr (EString _ strVal) st = do
-  let res = VString strVal
+  -- BNFC seems to keep the enclosing quotes, so remove them.
+  -- TODO: Should also unescape double quotes in the middle.
+  let res = VString $ tail $ init strVal
   lift $ putStrLn $ "Evaluated string of value: " ++ strVal
   return (res, st)
 
@@ -128,20 +197,18 @@ evalExpr (ELValue p (LValueVar _ (Ident vname))) st = do
   return (v, st)
 
 evalExpr (EFnCall p (Ident fname) params) st = do
-  lift $ putStrLn ("tests.txt:" ++ showLinCol p
-                    ++ " calling function of name: `" ++ fname ++ "'"
-                    ++ " which does not work yet.")
+  lift $ putStrLn $ "Calling function of name: `" ++ fname ++ "'"
   func <- toErrorT $ getFunc fname p st >>= (return . snd)
-  -- lift $ putStrLn $ "Function id: " ++ show fid
-  lift $ putStrLn $ "Function def: " ++ show func
+  (invokeParams, st') <- fnCallParams params st
+  toErrorT $ enforce (length invokeParams == length (funcParams func))
+    $ EDInvalidNumParams p (length $ funcParams func) (length invokeParams)
 
-  let callFun s = evalStmt (funcBody func) s{ stateScope = funcScope func }
-      returnsValue = funcRetT func /= 0 -- TODO: Hardcode 0 = VEmpty
+  let returnsValue = funcRetT func /= 0 -- TODO: Hardcode 0 = VEmpty
       returnHndl = if returnsValue then expectReturnValue else catchReturnVoid
-  returnHndl p $ dontAllowBreakContinue $ scope callFun st
+
+  scope2 (returnHndl p . dontAllowBreakContinue . evalFunction func invokeParams p) st'
 
 evalExpr (ELValue _ _) _ = undefined
-
   -- EDVarNotFound String PPos_
 
 -- evalExpr _ _ = toErrorT $ Fail $ NotImplemented "This is madness"
@@ -202,10 +269,9 @@ evalLoopImpl expr stmt incStmt st = do
   (v, st') <- evalExpr expr st
   cond <- toErrorT $ ofTypeBool v st' (getPos expr)
   lift $ putStrLn $ "evaluated loop condition: " ++ show cond
-  -- lift $ print $ getVar "i" Nothing st'
   if cond
     then do
-      st'' <- catchContinue $ evalStmt stmt st'
+      st'' <- scope (catchContinue . evalStmt stmt) st'
       st''' <- case incStmt of -- If incStmt is specified evaluate it.
                  Nothing -> return st''
                  Just increm -> evalStmt increm st''
@@ -279,7 +345,7 @@ evalStmt (SIf _ expr stmt) st = evalIfStmtImpl expr stmt Nothing st
 evalStmt (SIfElse _ expr stmt elStmt) st = evalIfStmtImpl expr stmt (Just elStmt) st
 
 -- TODO: Should this be scoped?
-evalStmt (SWhile _ expr stmt) st = catchBreak $ evalLoopImpl expr stmt Nothing st
+evalStmt (SWhile _ expr stmt) st = scope (catchBreak . evalLoopImpl expr stmt Nothing) st
 
 evalStmt e@(SFor _ (Ident iterName) eStart eEnd stmt) st = do
   (vStart, st') <- evalExpr eStart st

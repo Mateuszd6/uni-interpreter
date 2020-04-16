@@ -25,7 +25,8 @@ data Var
   deriving (Show)
 
 type Param = (String, TypeId)
-data Func = Func { funcBody :: Stmt PPos,
+data Func = Func { funcId :: FunId,
+                   funcBody :: Stmt PPos,
                    funcRetT :: TypeId,
                    funcParams :: [Param],
                    funcScope :: Scope }
@@ -73,7 +74,18 @@ tempDefaultStore :: Store
 tempDefaultStore = Store Map.empty Map.empty 1 1 4 -- TODO: Make sure id don't bind reserved onces.
 
 tempDefaultState :: State
-tempDefaultState = State 0 tempDefaultStore tempDefaultScope
+tempDefaultState =
+  -- dummyStmt is a hack, we will never evaluate it, but undefined causes some
+  -- problems because we use strict map which forces an evaluation.
+  let st = State 0 tempDefaultStore tempDefaultScope
+      dummyStmt = SBreak Nothing
+  in
+    -- TODO: HARDOCDES! 2 - tstring, 0 - tvoid!
+    (snd . createFunc "die" dummyStmt [("val", 3)] 0) $
+    (snd . createFunc "printString" dummyStmt [("val", 3)] 0) $
+    (snd . createFunc "printBool" dummyStmt [("val", 2)] 0) $
+    (snd . createFunc "printInt" dummyStmt [("val", 1)] 0) $
+    st
 
 -- TODO: Move to dumping
 dumpState :: State -> IO ()
@@ -110,7 +122,7 @@ createVar name v s@(State _ str@(Store vars _ next _ _) scp@(Scope vnames _ _)) 
 createFunc :: String -> Stmt PPos -> [Param] -> TypeId -> State -> (FunId, State)
 createFunc name body params ret s@(State _ str@(Store _ funcs _ next _) scp@(Scope _ fnames _)) =
   (next, s{
-      stateStore = str{ storeFuncs = Map.insert next (Func body ret params scp) funcs,
+      stateStore = str{ storeFuncs = Map.insert next (Func next body ret params scp) funcs,
                         nextFuncId = next + 1 },
       stateScope = scp{ scopeFuncs = Map.insert name next fnames } })
 
@@ -177,6 +189,13 @@ scope fun st = do
   st' <- fun st
   return st'{ stateScope = stateScope st }
 
+-- Handy when evaluating two things in a scoped block, like evaluating a
+-- function with return value.
+scope2 :: (State -> ErrorT IO (a, State)) -> State -> ErrorT IO (a, State)
+scope2 fun st = do
+  (x, st') <- fun st
+  return (x, st'{ stateScope = stateScope st })
+
 -- TODO: read this and decide if it stays.
 -- Generalized Error Monad (including Monad Transform) to combine error
 -- handling with with IO. This features an ErrorDetail type which allows us to
@@ -199,6 +218,7 @@ data ErrorDetail
   | EDNoReturn PPos
   | EDNoReturnNonVoid PPos -- TODO: rename
   | EDReturnVoid PPos
+  | EDInvalidNumParams PPos Int Int
 
 
 -- TODO: hardcoded!!!
@@ -225,6 +245,10 @@ instance Show ErrorDetail where
   show (EDNoReturn p) = showFCol p ++ "Function that returns a value didn't return."
   show (EDNoReturnNonVoid p) = showFCol p ++ "Void function cannot return a value."
   show (EDReturnVoid p) = showFCol p ++ "Return without a value when value was expected."
+  show (EDInvalidNumParams p expected got) = showFCol p ++
+    "Invalid number of parameters. Expected " ++ show expected ++
+    ", but got " ++ show got ++ "."
+
   show _ = "Unknown error: No idea what is happening." -- TODO.
 
 data FlowReason
