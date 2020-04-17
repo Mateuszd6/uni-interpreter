@@ -219,7 +219,7 @@ data ErrorDetail
   | EDNoReturnNonVoid PPos -- TODO: rename
   | EDReturnVoid PPos
   | EDInvalidNumParams PPos Int Int
-
+  | EDTupleNumbersDontMatch PPos Int Int
 
 -- TODO: hardcoded!!!
 file_ :: String
@@ -248,6 +248,9 @@ instance Show ErrorDetail where
   show (EDInvalidNumParams p expected got) = showFCol p ++
     "Invalid number of parameters. Expected " ++ show expected ++
     ", but got " ++ show got ++ "."
+  show (EDTupleNumbersDontMatch p l r) = showFCol p ++
+    "Numbers of elements in asigned tuples don't " ++
+    "much: left has " ++ show l ++ ", but right has " ++ show r ++ "."
 
   show _ = "Unknown error: No idea what is happening." -- TODO.
 

@@ -218,12 +218,6 @@ evalExpr expr _ = do -- TODO: This dies!
   undefined
 
 -- TODO: Make sure that a variable can't be declared twice in the same scope.
--- TODO: Handle the situation when the name already exists in the scope.  I
---       think it's fine, becasue the name is replaced in the scope when
---       inserting.
--- TODO: Don't use vempty refactor to use maybe!
--- TODO: This should probably fail when the variable already exists. Double
---       check that scenario to make sure state is not changed!!
 evalVarDeclImpl :: String -> TypeId -> PPos -> Var -> State -> ErrorT IO State
 evalVarDeclImpl vname tId p var st = do
   lift $ putStrLn ("tests.txt:" ++ showLinCol p
@@ -388,6 +382,18 @@ evalStmt (SFDecl p (Ident fname) (FDDefault _ params bd funRet stmts)) st = do
 
       st' = snd $ createFunc fname body fParams tId st -- TODO: 0 means vempty - don't hardcode
   return st'
+
+evalStmt (STDecl p targ (EOTRegular _ expr)) st = undefined
+
+evalStmt (STDecl p (TTar _ targs) (EOTTuple _ exprs)) st = do
+  -- TODO: This appears more in one place, extract it.
+  (vs, st') <- foldrM (\ex (vars, s) ->
+                          evalExpr ex s >>= \(v, s') -> return ((v, getPos ex):vars, s'))
+                      ([], st) exprs
+  toErrorT $ enforce (length targs == length exprs)
+    $ EDTupleNumbersDontMatch p (length targs) (length exprs)
+  lift $ mapM_ (\(v, p0) -> putStrLn $ showFCol p0 ++ show v) vs
+  undefined
 
 evalStmt (SAssign p0 (LValueVar p1 (Ident vname)) expr) st = do
   (asgnVal, st') <- evalExpr expr st
