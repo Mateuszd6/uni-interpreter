@@ -84,7 +84,7 @@ tempDefaultState =
     (snd . createFunc "die" dummyStmt [("val", 3)] 0) $
     (snd . createFunc "printString" dummyStmt [("val", 3)] 0) $
     (snd . createFunc "printBool" dummyStmt [("val", 2)] 0) $
-    (snd . createFunc "printInt" dummyStmt [("val", 1)] 0) $
+    (snd . createFunc "printInt" dummyStmt [("val", 1)] 0)
     st
 
 -- TODO: Move to dumping

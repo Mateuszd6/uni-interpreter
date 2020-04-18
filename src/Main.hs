@@ -52,8 +52,8 @@ enforce cond err
   | otherwise = Fail err
 
 -- | Make sure the var is of the desired type or fail with a TypeError.
-enforceType :: Var -> TypeId -> State -> PPos -> Error ()
-enforceType v tId st p
+enforceType :: Var -> TypeId -> PPos -> State -> Error ()
+enforceType v tId p st
   | varTypeId v == tId = Ok ()
   | otherwise = Fail $
     EDTypeError (getTypeNameForED tId st) (getTypeNameForED (varTypeId v) st) p
@@ -96,14 +96,18 @@ foldrM :: Monad m => (a -> b -> m b) -> b -> [a] -> m b
 foldrM _ d [] = return d
 foldrM f d (x:xs) = foldrM f d xs >>= f x
 
-fnCallParams :: InvokeExprList PPos -> State -> ErrorT IO ([Var], State)
-fnCallParams (IELEmpty _) st = toErrorT $ Ok ([], st)
-
+-- Evalulate a list of expressions with foldr, return the list and a new
+-- state. Each expression is evaluated in a new state (right to left).
 -- TODO: Try to save ppos so that erorss are nicer here.
-fnCallParams (IELDefault _ exprs) st =
+evalExprsListr :: [Expr PPos] -> State -> ErrorT IO ([Var], State)
+evalExprsListr exprs st =
   foldrM (\ex (vars, s) -> evalExpr ex s >>= \(v, s') -> return (v:vars, s'))
          ([], st)
          exprs
+
+fnCallParams :: InvokeExprList PPos -> State -> ErrorT IO ([Var], State)
+fnCallParams (IELEmpty _) st = toErrorT $ Ok ([], st)
+fnCallParams (IELDefault _ exprs) st = evalExprsListr exprs st
 
 isBuiltinFunc :: Func -> Bool
 isBuiltinFunc (Func fid _ _ _ _)
@@ -125,6 +129,13 @@ executeBuiltin (Func 2 _ _ _ _) st = do
   lift $ putStr $ show bool
   return st
 
+executeBuiltin (Func 3 _ _ _ _) st = do
+  str <- toErrorT $ getVar "val" Nothing st
+         >>= (return . snd)
+         >>= \v -> ofTypeString v st Nothing
+  lift $ putStr str
+  return st
+
 -- TODO: Would be cool to get line number here.
 executeBuiltin (Func 4 _ _ _ _) st = do
   str <- toErrorT $ getVar "val" Nothing st
@@ -137,11 +148,11 @@ executeBuiltin (Func 4 _ _ _ _) st = do
 executeBuiltin _ _ =
   error "This is not a builtin function. This should not happen."
 
--- Value is returned in a tricky way through 'Flow' type ctor.
+-- Value is returned in a tricky way through 'Flow', so it has to be catched.
 evalFunction :: Func -> [Var] -> PPos -> State -> ErrorT IO State
 evalFunction func invokeP p st = do
   st' <- toErrorT $
-    foldrM (\(par, (pname, tId)) s -> enforceType par tId s p >>
+    foldrM (\(par, (pname, tId)) s -> enforceType par tId p s >>
                                       Ok (snd $ createVar pname par s))
            st { stateScope = funcScope func } $
            zip invokeP $ funcParams func
@@ -219,34 +230,44 @@ evalExpr expr _ = do -- TODO: This dies!
 
 -- TODO: Make sure that a variable can't be declared twice in the same scope.
 -- TODO: this can be regular Error, not errorT
-evalVarDeclImpl :: String -> TypeId -> PPos -> Var -> State -> ErrorT IO State
-evalVarDeclImpl vname tId p var st = do
+-- evalVarDeclImpl, evalVarAsgnImpl have same signatures. This is important so
+-- that we can use them interchangably, e.g. in tuples.
+evalVarDeclImpl :: String -> Var -> PPos -> State -> ErrorT IO State
+evalVarDeclImpl vname var p st = do
   lift $ putStrLn ("tests.txt:" ++ showLinCol p
                    ++ "Declaring variable: " ++ vname
-                   ++ " of type: " ++ show tId
                    ++ " with value: " ++ show var)
   let (vid, st') = createVar vname var st
   lift $ putStrLn $ "created variable of varId: " ++ show vid
   lift $ dumpState st'
   return st'
 
+-- TODO: this can be regular Error, not errorT
+evalVarAsgnImpl :: String -> Var -> PPos -> State -> ErrorT IO State
+evalVarAsgnImpl vname asgnVal p st = do
+  -- (asgnVal, st') <- evalExpr expr st
+  -- (vId, var) <- toErrorT $ getVar vname p1 st
+  (vId, var) <- toErrorT $ getVar vname p st
+  toErrorT $ enforceType var (varTypeId asgnVal) p st
+  toErrorT $ setVar vId asgnVal st
+
 evalVarDecl :: VarDecl PPos -> State -> ErrorT IO State
 evalVarDecl (DVDecl p (Ident vname) tp) st = do
   tId <- toErrorT $ getTypeId tp st
-  evalVarDeclImpl vname tId p (VUninitialized tId) st
+  evalVarDeclImpl vname (VUninitialized tId) p st
 
 evalVarDecl (DVDeclAsgn p (Ident vname) tp expr) st = do
   (v, st') <- evalExpr expr st
   tId <- toErrorT $ getTypeId tp st'
 
   -- Enforce that given type is same as the type of the RHS expresion.
-  toErrorT $ enforceType v tId st $ getPos expr
-  evalVarDeclImpl vname tId p v st'
+  toErrorT $ enforceType v tId (getPos expr) st'
+  evalVarDeclImpl vname v p st'
 
 evalVarDecl (DVDeclDeduce p (Ident vname) expr) st = do
     (v, st') <- evalExpr expr st
     let tId = varTypeId v -- New type is equal to the rhs type.
-    evalVarDeclImpl vname tId p v st'
+    evalVarDeclImpl vname v p st'
 
 evalIfStmtImpl :: Expr PPos -> Stmt PPos -> Maybe (Stmt PPos) -> State -> ErrorT IO State
 evalIfStmtImpl expr stmt elseStmt st = do
@@ -332,6 +353,25 @@ funcToParams (FPList _ declParams) st =
   mapM (\(DDeclBasic _ (Ident n) t) -> getTypeId t st >>= \tId -> return (n, tId))
        declParams
 
+-- TODO: Rename, replace all zips and make a one error message for all of them.
+zipEqual :: [a] -> [b] -> Maybe [(a, b)]
+zipEqual [] [] = Just []
+zipEqual (a:as) (b:bs) = zipEqual as bs >>= (return . (:) (a, b))
+zipEqual _ _ = Nothing
+
+tupleAsgnOrDeclImpl :: Bool -> [IdentOrIgnr PPos] -> [Var] -> PPos -> State -> ErrorT IO State
+tupleAsgnOrDeclImpl decl targs vs p st = do
+  zipped <- toErrorT
+            $ errorFromMaybe (EDTupleNumbersDontMatch p (length targs) (length vs))
+            $ zipEqual targs vs
+
+  let action = if decl then evalVarDeclImpl else evalVarAsgnImpl
+  foldrM (\(tar, v) s ->
+            case tar of
+              IOIIgnore _ -> toErrorT $ Ok s
+              IOIIdent pv (Ident name) -> action name v pv s)
+         st zipped
+
 evalStmt :: Stmt PPos -> State -> ErrorT IO State
 
 evalStmt (SBlock _ _ stmts) st = scope (\s -> foldM (flip evalStmt) s stmts) st
@@ -364,7 +404,7 @@ evalStmt e@(SFor _ (Ident iterName) eStart eEnd stmt) st = do
   -- Create func taht declares a loop iterator and evaluates loop with given
   -- control statements. Then run the function in a single scope.
   let f s = do
-        s' <- evalVarDeclImpl iterName 1 (getPos e) (VInt vStartConv) s
+        s' <- evalVarDeclImpl iterName (VInt vStartConv) (getPos e) s
         evalLoopImpl cmpExpr stmt (Just incStmt) s'
 
   scope f st''
@@ -381,32 +421,24 @@ evalStmt (SFDecl p (Ident fname) (FDDefault _ params bd funRet stmts)) st = do
   fParams <- toErrorT $ funcToParams params st
   let body = SBlock p bd stmts
 
-      st' = snd $ createFunc fname body fParams tId st -- TODO: 0 means vempty - don't hardcode
-  return st'
-
-evalStmt (STDecl p targ (EOTRegular _ expr)) st = undefined
+  -- TODO: 0 means vempty - don't hardcode
+  return $ snd $ createFunc fname body fParams tId st
 
 evalStmt (STDecl p (TTar _ targs) (EOTTuple _ exprs)) st = do
-  toErrorT $ enforce (length targs == length exprs)
-      $ EDTupleNumbersDontMatch p (length targs) (length exprs)
+  (vs, st') <- evalExprsListr exprs st
+  tupleAsgnOrDeclImpl True targs vs p st'
 
-  -- TODO: This appears more in one place, extract it.
-  (vs, st') <- foldrM (\ex (vars, s) ->
-                          evalExpr ex s >>= \(v, s') -> return ((v, getPos ex):vars, s'))
-                      ([], st) exprs
+evalStmt (STAssign p (TTar _ targs) (EOTTuple _ exprs)) st = do
+  (vs, st') <- evalExprsListr exprs st
+  tupleAsgnOrDeclImpl False targs vs p st'
 
-  lift $ mapM_ (\(v, p0) -> putStrLn $ showFCol p0 ++ show v) vs
-
-  foldrM (\(tar, (v, pe)) s ->
-            case tar of
-              IOIIgnore _ -> toErrorT $ Ok st'
-              IOIIdent _ (Ident name) -> evalVarDeclImpl name (varTypeId v) pe v s)
-         st' $ zip targs vs
+evalStmt (STDecl p (TTar _ targs) (EOTRegular _ expr)) st = undefined
+evalStmt (STAssign p (TTar _ targs) (EOTRegular _ exprs)) st = undefined
 
 evalStmt (SAssign p0 (LValueVar p1 (Ident vname)) expr) st = do
   (asgnVal, st') <- evalExpr expr st
   (vId, var) <- toErrorT $ getVar vname p1 st
-  toErrorT $ enforceType var (varTypeId asgnVal) st' p0
+  toErrorT $ enforceType var (varTypeId asgnVal) p0 st'
   toErrorT $ setVar vId asgnVal st' -- TODO: Next this all should be handled by setvar.
 
 evalStmt (SReturn p (RExNone _)) st = toErrorT $ Flow (FRReturn p VEmpty) st
@@ -457,7 +489,7 @@ usage = do
   exitFailure
 
 main :: IO ()
-main = do
+main =
   {-
   let q = tempDefaultState
   print q
