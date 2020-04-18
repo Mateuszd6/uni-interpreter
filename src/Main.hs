@@ -218,6 +218,7 @@ evalExpr expr _ = do -- TODO: This dies!
   undefined
 
 -- TODO: Make sure that a variable can't be declared twice in the same scope.
+-- TODO: this can be regular Error, not errorT
 evalVarDeclImpl :: String -> TypeId -> PPos -> Var -> State -> ErrorT IO State
 evalVarDeclImpl vname tId p var st = do
   lift $ putStrLn ("tests.txt:" ++ showLinCol p
@@ -386,14 +387,21 @@ evalStmt (SFDecl p (Ident fname) (FDDefault _ params bd funRet stmts)) st = do
 evalStmt (STDecl p targ (EOTRegular _ expr)) st = undefined
 
 evalStmt (STDecl p (TTar _ targs) (EOTTuple _ exprs)) st = do
+  toErrorT $ enforce (length targs == length exprs)
+      $ EDTupleNumbersDontMatch p (length targs) (length exprs)
+
   -- TODO: This appears more in one place, extract it.
   (vs, st') <- foldrM (\ex (vars, s) ->
                           evalExpr ex s >>= \(v, s') -> return ((v, getPos ex):vars, s'))
                       ([], st) exprs
-  toErrorT $ enforce (length targs == length exprs)
-    $ EDTupleNumbersDontMatch p (length targs) (length exprs)
+
   lift $ mapM_ (\(v, p0) -> putStrLn $ showFCol p0 ++ show v) vs
-  undefined
+
+  foldrM (\(tar, (v, pe)) s ->
+            case tar of
+              IOIIgnore _ -> toErrorT $ Ok st'
+              IOIIdent _ (Ident name) -> evalVarDeclImpl name (varTypeId v) pe v s)
+         st' $ zip targs vs
 
 evalStmt (SAssign p0 (LValueVar p1 (Ident vname)) expr) st = do
   (asgnVal, st') <- evalExpr expr st
