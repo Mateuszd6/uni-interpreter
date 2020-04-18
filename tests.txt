@@ -1,5 +1,9 @@
-temp : int = 4;
-printInt(temp);
+mateusz :: () -> [int, int] {
+    return [12, "mateusz"];
+}
+
+[a, b] := mateusz();
+
 die ("It's over");
 
 z := 1;

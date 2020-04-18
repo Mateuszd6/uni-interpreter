@@ -66,8 +66,15 @@ enforceType v tId p st
     EDTypeError (getTypeNameForED tId st) (getTypeNameForED (varTypeId v) st) p
 
 enforceRetType :: Var -> FRetT -> PPos -> State -> Error ()
+enforceRetType (VTuple _) (FRetTSinge _) p _ = Fail $ EDTupleReturned p
 enforceRetType v (FRetTSinge tId) p st = enforceType v tId p st
-enforceRetType v (FRetTTuple types) p st = Ok () -- TODO
+enforceRetType (VTuple vars) (FRetTTuple types) p st = do
+  zipped <- errorFromMaybe (EDTupleNumbersDontMatch p (length types) (length vars))
+            $ tryZip types vars
+  mapM_ (\(t, v) -> enforceType v t p st) zipped
+
+enforceRetType _ (FRetTTuple _) p _ = Fail $ EDValueReturned p
+
 
 runFile :: FilePath -> IO ()
 runFile f = putStrLn f >> readFile f >>= run
@@ -346,13 +353,12 @@ dontAllowReturn st = do
     Flow (FRReturn p _) _ -> Fail $ EDUnexpectedReturn p
     _ -> err_
 
-funcRetTToTypeId :: FuncRetT PPos -> State -> Error FRetT
-funcRetTToTypeId (FRTSingle _ t) st = FRetTSinge <$> getTypeId t st
-funcRetTToTypeId (FRTTuple _ types) st = do
-  res <- foldrM (\a b -> flip (:) b <$> getTypeId a st) [] types
-  return $ FRetTTuple res
+parseRetType :: FuncRetT PPos -> State -> Error FRetT
+parseRetType (FRTSingle _ t) st = FRetTSinge <$> getTypeId t st
+parseRetType (FRTTuple _ types) st =
+  FRetTTuple <$> foldrM (\a b -> flip (:) b <$> getTypeId a st) [] types
 
-funcRetTToTypeId (FRTEmpty _) _ = Ok $ FRetTSinge 0
+parseRetType (FRTEmpty _) _ = Ok $ FRetTSinge 0
 
 funcReturnsVoid :: FRetT -> Bool
 funcReturnsVoid (FRetTSinge 0) = True
@@ -433,7 +439,7 @@ evalStmt (SVDecl _ vdecl) st = evalVarDecl vdecl st
 evalStmt (SFDecl p (Ident fname) (FDDefault _ params bd funRet stmts)) st = do
   lift $ putStrLn $ showFCol p ++ "Declaring function named `" ++ fname ++ "'."
   -- TODO: Using Sblock is dangerous because bind  may eliminate function arguments.
-  retT <- toErrorT $ funcRetTToTypeId funRet st
+  retT <- toErrorT $ parseRetType funRet st
   fParams <- toErrorT $ funcToParams params st
   let body = SBlock p bd stmts
 
@@ -448,8 +454,15 @@ evalStmt (STAssign p (TTar _ targs) (EOTTuple _ exprs)) st = do
   (vs, st') <- evalExprsListr exprs st
   tupleAsgnImpl targs vs p st'
 
-evalStmt (STDecl p (TTar _ targs) (EOTRegular _ expr)) st = undefined
-evalStmt (STAssign p (TTar _ targs) (EOTRegular _ exprs)) st = undefined
+evalStmt (STDecl p (TTar _ targs) (EOTRegular _ expr)) st = do
+  (var, st') <- evalExpr expr st
+  vs <- toErrorT $ varToTuple st' p var
+  tupleDeclImpl targs vs p st'
+
+evalStmt (STAssign p (TTar _ targs) (EOTRegular _ expr)) st = do
+  (var, st') <- evalExpr expr st
+  vs <- toErrorT $ varToTuple st' p var
+  tupleAsgnImpl targs vs p st'
 
 evalStmt (SAssign p0 (LValueVar p1 (Ident vname)) expr) st = do
   (asgnVal, st') <- evalExpr expr st
