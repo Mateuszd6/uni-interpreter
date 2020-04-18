@@ -21,13 +21,21 @@ data Var
   | VInt Int
   | VBool Bool
   | VString String
+  | VTuple [Var]
   | VStruct { vStructTId :: Int, vStructVars :: Struct }
   deriving (Show)
 
 type Param = (String, TypeId)
+
+-- Could use Either, but this is much more readable in pattern matching.
+data FRetT
+  = FRetTSinge TypeId
+  | FRetTTuple [TypeId]
+  deriving (Show)
+
 data Func = Func { funcId :: FunId,
                    funcBody :: Stmt PPos,
-                   funcRetT :: TypeId,
+                   funcRetT :: FRetT,
                    funcParams :: [Param],
                    funcScope :: Scope }
   deriving (Show)
@@ -71,7 +79,7 @@ data State = State
 tempDefaultScope :: Scope
 tempDefaultScope = Scope Map.empty Map.empty Map.empty
 tempDefaultStore :: Store
-tempDefaultStore = Store Map.empty Map.empty 1 1 4 -- TODO: Make sure id don't bind reserved onces.
+tempDefaultStore = Store Map.empty Map.empty 1 1 5 -- TODO: Make sure id don't bind reserved onces.
 
 tempDefaultState :: State
 tempDefaultState =
@@ -81,10 +89,10 @@ tempDefaultState =
       dummyStmt = SBreak Nothing
   in
     -- TODO: HARDOCDES! 2 - tstring, 0 - tvoid!
-    (snd . createFunc "die" dummyStmt [("val", 3)] 0) $
-    (snd . createFunc "printString" dummyStmt [("val", 3)] 0) $
-    (snd . createFunc "printBool" dummyStmt [("val", 2)] 0) $
-    (snd . createFunc "printInt" dummyStmt [("val", 1)] 0)
+    (snd . createFunc "die" dummyStmt [("val", 3)] (FRetTSinge 0)) $
+    (snd . createFunc "printString" dummyStmt [("val", 3)] (FRetTSinge 0)) $
+    (snd . createFunc "printBool" dummyStmt [("val", 2)] (FRetTSinge 0)) $
+    (snd . createFunc "printInt" dummyStmt [("val", 1)] (FRetTSinge 0))
     st
 
 -- TODO: Move to dumping
@@ -119,7 +127,7 @@ createVar name v s@(State _ str@(Store vars _ next _ _) scp@(Scope vnames _ _)) 
                         nextVarId = next + 1 },
       stateScope = scp{ scopeVars = Map.insert name next vnames } })
 
-createFunc :: String -> Stmt PPos -> [Param] -> TypeId -> State -> (FunId, State)
+createFunc :: String -> Stmt PPos -> [Param] -> FRetT -> State -> (FunId, State)
 createFunc name body params ret s@(State _ str@(Store _ funcs _ next _) scp@(Scope _ fnames _)) =
   (next, s{
       stateStore = str{ storeFuncs = Map.insert next (Func next body ret params scp) funcs,
@@ -170,6 +178,7 @@ getTypeNameForED tId (State _ _ scp)
   | tId == 1 = "int"
   | tId == 2 = "bool"
   | tId == 3 = "string"
+  | tId == 4 = "tuple" -- TODO: describe the trick
   | otherwise = Maybe.fromMaybe "*unknown*" $ do
       pair <- find ((tId ==) . snd) $ Map.toList $ scopeTypes scp
       return $ fst pair -- Should never hit the *unknown* case, but just for safety.
@@ -182,6 +191,7 @@ varTypeId VEmpty = 0
 varTypeId (VInt _) = 1 -- Permitive types have constant typeids.
 varTypeId (VBool _) = 2
 varTypeId (VString _) = 3
+varTypeId (VTuple _) = 4 -- TODO: Describe the trick
 varTypeId (VStruct sId _) = sId -- TODO: Structs know their typeids??
 
 scope :: (State -> ErrorT IO State) -> State -> ErrorT IO State
@@ -220,6 +230,8 @@ data ErrorDetail
   | EDReturnVoid PPos
   | EDInvalidNumParams PPos Int Int
   | EDTupleNumbersDontMatch PPos Int Int
+  | EDTupleReturned PPos
+  | EDValueReturned PPos
 
 -- TODO: hardcoded!!!
 file_ :: String
@@ -251,13 +263,15 @@ instance Show ErrorDetail where
   show (EDTupleNumbersDontMatch p l r) = showFCol p ++
     "Numbers of elements in asigned tuples don't " ++
     "much: left has " ++ show l ++ ", but right has " ++ show r ++ "."
+  show (EDTupleReturned p) = showFCol p ++ "Tuple returned, when single variable expected."
+  show (EDValueReturned p) = showFCol p ++ "Single variable returned, when tuple was expected."
 
   show _ = "Unknown error: No idea what is happening." -- TODO.
 
 data FlowReason
   = FRBreak PPos
   | FRContinue PPos
-  | FRReturn PPos Var
+  | FRReturn PPos Var -- Return a regular variable
   deriving (Show)
 
 data Error a

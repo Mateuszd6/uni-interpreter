@@ -1,14 +1,20 @@
+temp : int = 4;
+printInt(temp);
+die ("It's over");
+
 z := 1;
 x := 0;
 [x, _, z] := [1, 2, 4];
 
+foo :: () -> string {
+    return "a";
+}
 
-temp : int = 4;
-printInt(temp);
+q := foo();
 
 z := 0;
 x := 0;
-test :: (x : int) -> int {
+test :: (x : int, y : int) -> int {
     while (true) {
         break;
         continue;
@@ -18,7 +24,7 @@ test :: (x : int) -> int {
     return x + 1;
 }
 
-y := test(1);
+y := test(4, 12);
 x = 5;
 die("BAD");
 
