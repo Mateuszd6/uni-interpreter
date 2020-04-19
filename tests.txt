@@ -1,9 +1,27 @@
-foobar :: struct {
-    x : int;
-    y : string;
+bar :: struct {
+    w : int;
+    r : int;
 }
 
-m : int = new foobar {};
+foo :: struct {
+    x : int;
+    y : bar;
+}
+
+
+m : foo;
+m = new foo {};
+m.x = 4;
+m.y = new bar{};
+q : int = m.y;
+
+m.y.w = 3;
+m.y.r = 4;
+printInt(m.y.w);
+printInt(m.y.r);
+// m.y.w = 12;
+// m.y.r = 13;
+
 q := 0;
 die ("It's over");
 

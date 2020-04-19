@@ -3,6 +3,19 @@ module Main where -- TODO: This line is only to kill unused func warnings.
 -- TODO: Void variable can be the RHS on the deduced type.
 -- TODO: It is possible to make a struct of name 'void'
 -- TODO: Reserved names for structs and functions.
+-- TODO: State in printInt seems to be broken:
+--       bar :: struct {
+--           w : int;
+--           r : int;
+--       }
+--       foo :: struct {
+--           x : int;
+--           y : bar;
+--       }
+--       m : foo;
+--       m = new foo {};
+--       m.y = new bar{};
+--       printInt(m.y.w); -- <- This is broken
 
 -- TODO: Qualify imports
 import Data.Bits (xor)
@@ -53,6 +66,11 @@ varToStruct _ p desiredId (VUninitialized tId)
   | tId == desiredId = Fail $ EDVarNotInitialized p
 varToStruct st p desiredId var = Fail $
   EDTypeError (getTypeNameForED desiredId st) (getTypeNameForED (varTypeId var) st) p
+
+asStruct :: PPos -> Var -> Error (TypeId, Struct)
+asStruct _ (VStruct tId str) = Ok (tId, str)
+asStruct p (VUninitialized _) = Fail $ EDVarNotInitialized p
+asStruct p _ = Fail $ EDVariableNotStruct p
 
 enforce :: Bool -> ErrorDetail -> Error ()
 enforce cond err
@@ -169,6 +187,24 @@ evalFunction func invokeP p st = do
   if isBuiltinFunc func then executeBuiltin func st'
                         else evalStmt (funcBody func) st'
 
+-- TODO: make sure it lays next to assgnStructField.
+getStructField :: (TypeId, Struct) -> [String] -> PPos -> State -> Error Var
+getStructField (tId, struct) [n] p st =
+  errorFromMaybe (EDNoMember p (getTypeNameForED tId st) n) $
+    Map.lookup n struct
+
+getStructField (tId, struct) (n:ns) p st = do
+  strctDescr <- getTypeDescr tId p st
+  destTypeId <- errorFromMaybe (EDNoMember p (getTypeNameForED tId st) n) $
+                Map.lookup n $ strctFields strctDescr
+  destVar <- errorFromMaybe (EDNoMember p (getTypeNameForED tId st) n) $
+             Map.lookup n struct
+  destStruct <- snd <$> asStruct p destVar
+
+  getStructField (destTypeId, destStruct) ns p st
+
+getStructField _ [] _ _ = undefined -- TODO: Should not happen.
+
 evalExpr :: Expr PPos -> State -> ErrorT IO (Var, State)
   -- TODO: Left:
   -- EFnCall a Ident (InvokeExprList a)
@@ -216,7 +252,14 @@ evalExpr (ELValue p (LValueVar _ (Ident vname))) st = do
   (_, v) <- toErrorT $ getVar vname p st
   return (v, st)
 
-evalExpr (ELValue _ _) _ = undefined
+evalExpr (ELValue p lv@(LValueMemb _ _ _)) st = do
+  (members, (_, var)) <- toErrorT $ lvalueMem lv st
+  lift $ putStrLn $ "Var: " ++ show var
+  lift $ putStrLn $ "Members: " ++ show members
+  tInfo <- toErrorT $ asStruct p var
+  ret <- toErrorT $ getStructField tInfo members p st
+  lift $ putStrLn $ "Evaluated lvalue, got: " ++ show ret
+  return (ret, st)
 
 evalExpr (ENew p (Ident name)) st
   -- TODO: It is probably not necesarry, because it just won't parse.
@@ -239,7 +282,6 @@ evalExpr (EFnCall p (Ident fname) params) st = do
       returnHndlImpl = if returnsValue then expectReturnValue $ funcRetT func
                                        else catchReturnVoid
       returnHndl = returnHndlImpl p . dontAllowBreakContinue
-
 
   (ret, st'') <- scope2 (returnHndl . evalFunction func invokeParams p) st'
   return (ret, st'')
@@ -411,6 +453,37 @@ getStructMemebers (SMDefault _ members) st =
                                               getTypeId tp st)
          [] members
 
+-- First member is a list of accessed fields, second is a variable.
+lvalueMem :: LValue PPos -> State -> Error ([String], (VarId, Var))
+lvalueMem lv st =
+  let lvalueMemImpl :: LValue PPos -> [String] -> ([String], PPos, String)
+      lvalueMemImpl (LValueVar p0 (Ident name)) fs = (fs, p0, name)
+      lvalueMemImpl (LValueMemb _ v (Ident name)) fs = lvalueMemImpl v $ name:fs
+      (vmemb, p, vname) = lvalueMemImpl lv []
+  in
+    (vmemb,) <$> getVar vname p st
+
+assgnStructField :: (TypeId, Struct) -> [String] -> Var -> PPos -> State -> Error Struct
+assgnStructField (tId, struct) [n] asgnVal p st = do
+  strctDescr <- getTypeDescr tId p st
+  destTypeId <- errorFromMaybe (EDNoMember p (getTypeNameForED tId st) n) $
+                Map.lookup n $ strctFields strctDescr
+  enforceType asgnVal destTypeId p st -- check type of the member
+  return $ Map.insert n asgnVal struct
+
+assgnStructField (tId, struct) (n:ns) asgnVal p st = do
+  strctDescr <- getTypeDescr tId p st
+  destTypeId <- errorFromMaybe (EDNoMember p (getTypeNameForED tId st) n) $
+                Map.lookup n $ strctFields strctDescr
+  destVar <- errorFromMaybe (EDNoMember p (getTypeNameForED tId st) n) $
+             Map.lookup n struct
+  destStruct <- snd <$> asStruct p destVar
+  modified <- assgnStructField (destTypeId, destStruct) ns asgnVal p st
+
+  return $ Map.insert n (VStruct destTypeId modified) struct
+
+assgnStructField _ [] _ _ _ = undefined -- TODO: Should not happen.
+
 evalStmt :: Stmt PPos -> State -> ErrorT IO State
 
 evalStmt (SBlock _ _ stmts) st = scope (\s -> foldM (flip evalStmt) s stmts) st
@@ -483,11 +556,24 @@ evalStmt (STAssign p (TTar _ targs) (EOTRegular _ expr)) st = do
   vs <- toErrorT $ varToTuple st' p var
   tupleAsgnImpl targs vs p st'
 
-evalStmt (SAssign p0 (LValueVar p1 (Ident vname)) expr) st = do
+-- TODO: Remove once sure SAssign works correctly
+-- evalStmt (SAssign p0 (LValueVar p1 (Ident vname)) expr) st = do
+  -- (asgnVal, st') <- evalExpr expr st
+  -- (vId, var) <- toErrorT $ getVar vname p1 st
+  -- toErrorT $ enforceType var (varTypeId asgnVal) p0 st'
+  -- TODO: This all should be handled by setvar.
+
+evalStmt (SAssign p lv expr) st = do
   (asgnVal, st') <- evalExpr expr st
-  (vId, var) <- toErrorT $ getVar vname p1 st
-  toErrorT $ enforceType var (varTypeId asgnVal) p0 st'
-  toErrorT $ setVar vId asgnVal st' -- TODO: Next this all should be handled by setvar.
+  (membs, (vId, var)) <- toErrorT $ lvalueMem lv st'
+  toErrorT $ case membs of
+    [] -> do -- Assign single variable.
+      enforceType var (varTypeId asgnVal) p st'
+      setVar vId asgnVal st'
+    _ -> do -- Assign field of a struct.
+      (tId, struct) <- asStruct (getPos lv) var
+      newStruct <- assgnStructField (tId, struct) membs asgnVal p st'
+      setVar vId (VStruct tId newStruct) st'
 
 evalStmt (SReturn p (RExNone _)) st = toErrorT $ Flow (FRReturn p VEmpty) st
 evalStmt (SReturn p (RExRegular _ (EOTRegular _ expr))) st = do

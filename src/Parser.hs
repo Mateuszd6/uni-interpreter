@@ -73,3 +73,7 @@ instance Pos (Expr (Maybe (Int, Int))) where
   getPos (EString pos _) = pos
   getPos (EInt pos _) = pos
   getPos (EBool pos _) = pos
+
+instance Pos (LValue (Maybe (Int, Int))) where
+  getPos (LValueVar pos _) = pos
+  getPos (LValueMemb pos _ _) = pos

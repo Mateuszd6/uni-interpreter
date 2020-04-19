@@ -20,7 +20,7 @@ data Var
   | VBool Bool
   | VString String
   | VTuple [Var]
-  | VStruct { vStructTId :: Int, vStructData :: Struct }
+  | VStruct { vStructTId :: TypeId, vStructData :: Struct }
   deriving (Show)
 
 -- TODO: So that it is clear, that it is a _definition_ of a struct.
@@ -188,6 +188,10 @@ getTypeId (TUser p (Ident tname)) (State _ _ scp) =
   errorFromMaybe (EDTypeNotFound tname p)
   $ Map.lookup tname $ scopeTypes scp
 
+getTypeDescr :: TypeId -> PPos -> State -> Error Strct
+getTypeDescr tId p st = errorFromMaybe (EDVariableNotStruct p) $
+  Map.lookup tId $ storeTypes $ stateStore st
+
 -- | This is reverse map lookup, which is slow, but is done only once, when
 --   reporting the type error, in case when program is exploding anyway.
 getTypeNameForED :: TypeId -> State -> String
@@ -197,9 +201,8 @@ getTypeNameForED tId (State _ _ scp)
   | tId == 2 = "bool"
   | tId == 3 = "string"
   | tId == 4 = "tuple" -- TODO: describe the trick
-  | otherwise = Maybe.fromMaybe "*unknown*" $ do
-      pair <- find ((tId ==) . snd) $ Map.toList $ scopeTypes scp
-      return $ fst pair -- Should never hit the *unknown* case, but just for safety.
+  | otherwise = Maybe.fromMaybe ("*unknown* (typeId = " ++ show tId ++ ")") $
+      fst <$> find ((tId ==) . snd) (Map.toList $ scopeTypes scp)
 
 -- typeId is used to determine variable type. We can't use name becasue
 -- TODO: explain and decide whether it is used or not.
@@ -251,6 +254,8 @@ data ErrorDetail
   | EDTupleReturned PPos
   | EDValueReturned PPos
   | EDCantBePrimitiveType String PPos
+  | EDVariableNotStruct PPos
+  | EDNoMember PPos String String
 
 -- TODO: hardcoded!!!
 file_ :: String
@@ -284,8 +289,12 @@ instance Show ErrorDetail where
     "much: left has " ++ show l ++ ", but right has " ++ show r ++ "."
   show (EDTupleReturned p) = showFCol p ++ "Tuple returned, when single variable expected."
   show (EDValueReturned p) = showFCol p ++ "Single variable returned, when tuple was expected."
-  show (EDCantBePrimitiveType t p) = showFCol p ++ "Type must be a struct, not a primitive type." ++
+  show (EDCantBePrimitiveType t p) = showFCol p ++
+                                     "Type must be a struct, not a primitive type." ++
                                      " (Was: `" ++ t ++ "').";
+  show (EDVariableNotStruct p) = showFCol p ++ "Variable or member is not a struct."
+  show (EDNoMember p tname memb) = showFCol p ++ "Struct `" ++ tname ++ "'" ++
+                                   " has no member " ++ memb ++ "."
 
   show _ = "Unknown error: No idea what is happening." -- TODO.
 
