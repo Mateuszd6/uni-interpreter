@@ -35,5 +35,6 @@ else
 fi
 
 # Cleanup:
+rm -rf ./temp.diff
 rm -rf ./test.err
 rm -rf ./test.out
