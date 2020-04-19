@@ -75,7 +75,6 @@ enforceRetType (VTuple vars) (FRetTTuple types) p st = do
 
 enforceRetType _ (FRetTTuple _) p _ = Fail $ EDValueReturned p
 
-
 runFile :: FilePath -> IO ()
 runFile f = putStrLn f >> readFile f >>= run
 

@@ -2,4 +2,4 @@ interpreter
 *.x
 *.y
 obj/
-interf/
+test/failed_tests/*

@@ -16,10 +16,10 @@ endif
 
 export PKGNAME := mateusz_dudzinski
 
-.PHONY : all interpreter language clean package
-all : interpreter
+.PHONY: all interpreter language clean package validate
+all: interpreter
 
-language :
+language:
 	@# Just rebuild everything - this has to be called manyally with
 	@# 'make language' and probably will cause a buld break, because you need
 	@# super special version of bnfc to generate a line numbers.
@@ -31,16 +31,19 @@ language :
 	-rm -f DocLanguage.txt PrintLanguage.hs SkelLanguage.hs TestLanguage.hs
 	-mv -f AbsLanguage.hs ErrM.hs LexLanguage.hs ParLanguage.hs ./src
 
-interpreter : src/Main.hs
+interpreter: src/Main.hs
 	$(GHC) -Wall --make -XTupleSections -isrc src/Main.hs -odir obj -hidir obj -o $@
 
-test :
+test:
 	./interpreter < ./tests.txt
 
-lint :
+lint:
 	hlint ./src/Main.hs ./src/State.hs ./src/Parser.hs
 
-package : clean all
+validate:
+	@-cd ./test && ./validate.sh
+
+package: clean all
 	-rm -rf $(PKGNAME)
 	mkdir -p $(PKGNAME)
 	cp Language.cf $(PKGNAME)/
@@ -50,7 +53,7 @@ package : clean all
 	zip -r $(PKGNAME).zip $(PKGNAME)
 	-rm -rf $(PKGNAME)
 
-clean :
-	-rm -f *.hi *.o *.log *.aux *.dvi *.x *.y
+clean:
+	-rm -f *.hi *.o *.log *.aux *.dvi *.x *.y *.out
 	-rm -rf obj/ interf/
 	-rm -f interpreter
