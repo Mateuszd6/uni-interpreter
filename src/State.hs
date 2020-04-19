@@ -40,6 +40,9 @@ data Func = Func { funcId :: FunId,
                    funcScope :: Scope }
   deriving (Show)
 
+data Strct = Strct { strctName :: String, strctFields :: Map.Map String TypeId }
+  deriving (Show)
+
 -- TODO: User can return a struct from a scope which defines it!!!!
 -- Probably check in return?
 
@@ -48,9 +51,8 @@ data Store = Store
     storeVars :: Map.Map VarId Var,
     -- TODO: Instead maybe should be PPos but can't include parser.
     --       Include this in parser?
-    -- TODO: make a type instead of using tuple?
     storeFuncs :: Map.Map FunId Func,
-    -- storeTypes :: Map.Map TypeId () -- TODO!
+    storeTypes :: Map.Map TypeId Strct,
 
     nextVarId :: Int,
     nextFuncId :: Int,
@@ -79,7 +81,7 @@ data State = State
 tempDefaultScope :: Scope
 tempDefaultScope = Scope Map.empty Map.empty Map.empty
 tempDefaultStore :: Store
-tempDefaultStore = Store Map.empty Map.empty 1 1 5 -- TODO: Make sure id don't bind reserved onces.
+tempDefaultStore = Store Map.empty Map.empty Map.empty 1 1 5 -- TODO: Make sure id don't bind reserved onces.
 
 tempDefaultState :: State
 tempDefaultState =
@@ -104,6 +106,8 @@ dumpState s = do
   putMap $ storeVars $ stateStore s
   putStrLn "    Funcs:"
   putMap $ storeFuncs $ stateStore s
+  putStrLn "    Types:"
+  putMap $ storeTypes $ stateStore s
   -- putStrLn "    Types:"
   -- putMap $ storeTypes $ stateStore s
   putStrLn "  Scope:"
@@ -121,18 +125,25 @@ dumpState s = do
 
 -- | Create new variable and add it to the state.
 createVar :: String -> Var -> State -> (VarId, State)
-createVar name v s@(State _ str@(Store vars _ next _ _) scp@(Scope vnames _ _)) =
+createVar name v s@(State _ str@(Store vars _ _ next _ _) scp@(Scope vnames _ _)) =
   (next, s{
       stateStore = str{ storeVars = Map.insert next v vars,
                         nextVarId = next + 1 },
       stateScope = scp{ scopeVars = Map.insert name next vnames } })
 
 createFunc :: String -> Stmt PPos -> [Param] -> FRetT -> State -> (FunId, State)
-createFunc name body params ret s@(State _ str@(Store _ funcs _ next _) scp@(Scope _ fnames _)) =
+createFunc name body params ret s@(State _ str@(Store _ funcs _  _ next _) scp@(Scope _ fnames _)) =
   (next, s{
       stateStore = str{ storeFuncs = Map.insert next (Func next body ret params scp) funcs,
                         nextFuncId = next + 1 },
       stateScope = scp{ scopeFuncs = Map.insert name next fnames } })
+
+createStruct :: String -> [(String, TypeId)] -> State -> (TypeId, State)
+createStruct name fields s@(State _ str@(Store _ _ types _ _ next) scp@(Scope _ _ tnames)) =
+  (next, s{
+      stateStore = str{ storeTypes = Map.insert next (Strct name $ Map.fromList fields) types,
+                        nextTypeId = next + 1 },
+      stateScope = scp{ scopeTypes = Map.insert name next tnames } })
 
 -- TODO: This won't be used probably
 -- getVar :: VarId -> State -> Error Var
@@ -154,6 +165,14 @@ getFunc fname p (State _ str scp) =
   func <- Map.lookup fId $ storeFuncs str -- Store lookup, should not fail.
   return (fId, func)
 
+-- TODO: Provide for empty and uninitialized and tuple or don't use it.
+-- getType :: String -> PPos -> State -> Error TypeId
+-- getType "int" _ _ = Ok 1
+-- getType "bool" _ _ = Ok 2
+-- getType "string" _ _ = Ok 3
+-- getType name p st =
+  -- errorFromMaybe (EDTypeNotFound name p) $
+  -- Map.lookup name $ scopeTypes $ stateScope st
 
 -- TODO: I guess this should never happen, because to set a variable
 --       we have to get it first. Also PPos?
@@ -162,6 +181,7 @@ setVar :: VarId -> Var -> State -> Error State
 setVar vId val s@(State _ str _) = Ok $
   s{ stateStore = str{ storeVars = Map.insert vId val $ storeVars str }}
 
+-- TODO: Provide for empty and uninitialized and tuple?
 getTypeId :: Type PPos -> State -> Error TypeId
 getTypeId (TInt _) _ = Ok 1
 getTypeId (TBool _) _ = Ok 2

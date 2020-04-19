@@ -393,6 +393,13 @@ tupleDeclImpl = tupleAsgnOrDeclImpl True
 tupleAsgnImpl :: [IdentOrIgnr PPos] -> [Var] -> PPos -> State -> ErrorT IO State
 tupleAsgnImpl = tupleAsgnOrDeclImpl False
 
+getStructMemebers :: StrcMembers PPos -> State -> Error [(String, TypeId)]
+getStructMemebers (SMEmpty _) _ = Ok []
+getStructMemebers (SMDefault _ members) st =
+  foldrM (\(DStrMem _ (Ident name) tp) acc -> flip (:) acc . (name,) <$>
+                                              getTypeId tp st)
+         [] members
+
 evalStmt :: Stmt PPos -> State -> ErrorT IO State
 
 evalStmt (SBlock _ _ stmts) st = scope (\s -> foldM (flip evalStmt) s stmts) st
@@ -442,8 +449,10 @@ evalStmt (SFDecl p (Ident fname) (FDDefault _ params bd funRet stmts)) st = do
   fParams <- toErrorT $ funcToParams params st
   let body = SBlock p bd stmts
 
-  -- TODO: 0 means vempty - don't hardcode
   return $ snd $ createFunc fname body fParams retT st
+
+evalStmt (SSDecl p (Ident sname) (SDDefault _ members)) st =
+  toErrorT (snd . flip (createStruct sname) st <$> getStructMemebers members st)
 
 evalStmt (STDecl p (TTar _ targs) (EOTTuple _ exprs)) st = do
   (vs, st') <- evalExprsListr exprs st

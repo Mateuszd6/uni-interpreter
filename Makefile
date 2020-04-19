@@ -16,7 +16,7 @@ endif
 
 export PKGNAME := mateusz_dudzinski
 
-.PHONY: all interpreter language clean package validate
+.PHONY: all interpreter language clean package test validate
 all: interpreter
 
 language:
