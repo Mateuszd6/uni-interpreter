@@ -1,10 +1,17 @@
+foobar :: struct {
+    x : int;
+    y : string;
+}
+
+m : int = new foobar {};
+q := 0;
+die ("It's over");
+
 mateusz :: () -> [int, int] {
     return [12, "mateusz"];
 }
 
 [a, b] := mateusz();
-
-die ("It's over");
 
 z := 1;
 x := 0;

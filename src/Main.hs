@@ -6,6 +6,7 @@ module Main where -- TODO: This line is only to kill unused func warnings.
 
 -- TODO: Qualify imports
 import Data.Bits (xor)
+import qualified Data.Map.Strict as Map -- TODO: Explain why strict instead of lazy.
 -- import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import Control.Monad -- TODO: qualify
@@ -217,6 +218,16 @@ evalExpr (ELValue p (LValueVar _ (Ident vname))) st = do
 
 evalExpr (ELValue _ _) _ = undefined
 
+evalExpr (ENew p (Ident name)) st
+  -- TODO: It is probably not necesarry, because it just won't parse.
+  | name == "int" || name == "bool" || name == "string" || name == "void" =
+      toErrorT $ Fail $ EDCantBePrimitiveType name p
+  | otherwise = do
+      -- Create an initailized struct with non-initailized members.
+      (tId, strDef) <- toErrorT $ getTypeStruct name p st
+      let var = VStruct tId $ Map.map VUninitialized $ strctFields strDef
+      return (var, st)
+
 evalExpr (EFnCall p (Ident fname) params) st = do
   lift $ putStrLn $ "Calling function of name: `" ++ fname ++ "'"
   func <- toErrorT $ snd <$> getFunc fname p st
@@ -224,7 +235,7 @@ evalExpr (EFnCall p (Ident fname) params) st = do
   toErrorT $ enforce (length invokeParams == length (funcParams func))
     $ EDInvalidNumParams p (length $ funcParams func) (length invokeParams)
 
-  let returnsValue = not $ funcReturnsVoid $ funcRetT func -- TODO: Hardcode 0 = VEmpty
+  let returnsValue = not $ funcReturnsVoid $ funcRetT func
       returnHndlImpl = if returnsValue then expectReturnValue $ funcRetT func
                                        else catchReturnVoid
       returnHndl = returnHndlImpl p . dontAllowBreakContinue
@@ -444,14 +455,14 @@ evalStmt (SVDecl _ vdecl) st = evalVarDecl vdecl st
 
 evalStmt (SFDecl p (Ident fname) (FDDefault _ params bd funRet stmts)) st = do
   lift $ putStrLn $ showFCol p ++ "Declaring function named `" ++ fname ++ "'."
-  -- TODO: Using Sblock is dangerous because bind  may eliminate function arguments.
+  -- TODO: Using Sblock is dangerous because bind may eliminate function arguments.
   retT <- toErrorT $ parseRetType funRet st
   fParams <- toErrorT $ funcToParams params st
   let body = SBlock p bd stmts
 
   return $ snd $ createFunc fname body fParams retT st
 
-evalStmt (SSDecl p (Ident sname) (SDDefault _ members)) st =
+evalStmt (SSDecl _ (Ident sname) (SDDefault _ members)) st =
   toErrorT (snd . flip (createStruct sname) st <$> getStructMemebers members st)
 
 evalStmt (STDecl p (TTar _ targs) (EOTTuple _ exprs)) st = do

@@ -69,6 +69,7 @@ instance Pos (Expr (Maybe (Int, Int))) where
   getPos (EFnCall pos _ _) = pos
   getPos (EIife pos _ _) = pos
   getPos (ELValue pos _) = pos
+  getPos (ENew pos _) = pos
   getPos (EString pos _) = pos
   getPos (EInt pos _) = pos
   getPos (EBool pos _) = pos

@@ -1,5 +1,3 @@
--- | It's not a monad, sorry! -- TODO!
--- | All program-state related classes and functions.
 module State where -- TODO: rename to runtime?
 
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
@@ -22,7 +20,11 @@ data Var
   | VBool Bool
   | VString String
   | VTuple [Var]
-  | VStruct { vStructTId :: Int, vStructVars :: Struct }
+  | VStruct { vStructTId :: Int, vStructData :: Struct }
+  deriving (Show)
+
+-- TODO: So that it is clear, that it is a _definition_ of a struct.
+data Strct = Strct { strctName :: String, strctFields :: Map.Map String TypeId }
   deriving (Show)
 
 type Param = (String, TypeId)
@@ -38,9 +40,6 @@ data Func = Func { funcId :: FunId,
                    funcRetT :: FRetT,
                    funcParams :: [Param],
                    funcScope :: Scope }
-  deriving (Show)
-
-data Strct = Strct { strctName :: String, strctFields :: Map.Map String TypeId }
   deriving (Show)
 
 -- TODO: User can return a struct from a scope which defines it!!!!
@@ -166,13 +165,12 @@ getFunc fname p (State _ str scp) =
   return (fId, func)
 
 -- TODO: Provide for empty and uninitialized and tuple or don't use it.
--- getType :: String -> PPos -> State -> Error TypeId
--- getType "int" _ _ = Ok 1
--- getType "bool" _ _ = Ok 2
--- getType "string" _ _ = Ok 3
--- getType name p st =
-  -- errorFromMaybe (EDTypeNotFound name p) $
-  -- Map.lookup name $ scopeTypes $ stateScope st
+getTypeStruct :: String -> PPos -> State -> Error (TypeId, Strct)
+getTypeStruct name p st =
+  errorFromMaybe (EDTypeNotFound name p) $ do
+  tId <- Map.lookup name $ scopeTypes $ stateScope st -- Scope lookup.
+  strct <- Map.lookup tId $ storeTypes $ stateStore st -- Store lookup, should not fail.
+  return (tId, strct)
 
 -- TODO: I guess this should never happen, because to set a variable
 --       we have to get it first. Also PPos?
@@ -252,6 +250,7 @@ data ErrorDetail
   | EDTupleNumbersDontMatch PPos Int Int
   | EDTupleReturned PPos
   | EDValueReturned PPos
+  | EDCantBePrimitiveType String PPos
 
 -- TODO: hardcoded!!!
 file_ :: String
@@ -285,6 +284,8 @@ instance Show ErrorDetail where
     "much: left has " ++ show l ++ ", but right has " ++ show r ++ "."
   show (EDTupleReturned p) = showFCol p ++ "Tuple returned, when single variable expected."
   show (EDValueReturned p) = showFCol p ++ "Single variable returned, when tuple was expected."
+  show (EDCantBePrimitiveType t p) = showFCol p ++ "Type must be a struct, not a primitive type." ++
+                                     " (Was: `" ++ t ++ "').";
 
   show _ = "Unknown error: No idea what is happening." -- TODO.
 
