@@ -1,5 +1,3 @@
-{-# OPTIONS_GHC -Wno-unused-imports #-}
-
 -- BNF Converter: Error Monad
 -- Copyright (C) 2004  Author:  Aarne Ranta
 
@@ -16,6 +14,7 @@ data Err a = Ok a | Bad String
 
 instance Monad Err where
   return      = Ok
+  fail        = Bad
   Ok a  >>= f = f a
   Bad s >>= _ = Bad s
 
@@ -23,6 +22,7 @@ instance Applicative Err where
   pure = Ok
   (Bad s) <*> _ = Bad s
   (Ok f) <*> o  = liftM f o
+
 
 instance Functor Err where
   fmap = liftM

@@ -32,6 +32,7 @@ EFnCall. Expr6 ::= Ident InvokeExprList ;
 EIife.   Expr6 ::= FunDecl InvokeExprList ; -- IIFE (more in docs).
 
 ELValue. Expr7 ::= LValue ;
+ENew.    Expr7 ::= "new" Ident "{" "}" ;
 
 EString. Expr8 ::= String ;
 EInt.    Expr8 ::= Integer ;

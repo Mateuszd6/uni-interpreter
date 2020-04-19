@@ -40,6 +40,7 @@ data Expr a
     | EFnCall a Ident (InvokeExprList a)
     | EIife a (FunDecl a) (InvokeExprList a)
     | ELValue a (LValue a)
+    | ENew a Ident
     | EString a String
     | EInt a Integer
     | EBool a (Boolean a)
@@ -65,6 +66,7 @@ instance Functor Expr where
         EFnCall a ident invokeexprlist -> EFnCall (f a) ident (fmap f invokeexprlist)
         EIife a fundecl invokeexprlist -> EIife (f a) (fmap f fundecl) (fmap f invokeexprlist)
         ELValue a lvalue -> ELValue (f a) (fmap f lvalue)
+        ENew a ident -> ENew (f a) ident
         EString a string -> EString (f a) string
         EInt a integer -> EInt (f a) integer
         EBool a boolean -> EBool (f a) (fmap f boolean)

@@ -1,7 +1,7 @@
 # use make language to generate all bnfc files.
 # use make interpreter (or just make / make all) to generate interpreter program.
 
-export WHERE := local
+export WHERE := students
 ifeq ($(WHERE),students)
 	export BNFC := /home/students/inf/PUBLIC/MRJP/bin/students/bnfc
 	export ALEX := alex
