@@ -105,7 +105,6 @@ evalBinExpr :: (Show a, Show r) =>
                   State ->
                   ErrorT IO (Var, State)
 
--- TODO: Evaluate from right to left like in C
 -- TODO: Ppos.
 evalBinExpr varTo func varCtor lhs rhs st = do
   -- The *Conv variables are unwraped value from vars with desired type.
@@ -120,6 +119,21 @@ evalBinExpr varTo func varCtor lhs rhs st = do
 
   -- Now use the ctor to wrap calculated value back into Var type.
   return (varCtor $ evaledLConv `func` evaledRConv, st'')
+
+evalEqualExpr :: Bool -> Expr PPos -> Expr PPos -> State -> ErrorT IO (Var, State)
+evalEqualExpr neg lhs rhs st =
+  let tryComp :: Var -> Var -> Error Bool
+      tryComp (VInt x) (VInt y) = Ok $ x == y
+      tryComp (VBool x) (VBool y) = Ok $ x == y
+      tryComp (VString x) (VString y) = Ok $ x == y
+      tryComp v1 v2 = Fail $ EDCantCompare (getPos lhs)
+                                 (getTypeNameForED (varTypeId v1) st)
+                                 (getTypeNameForED (varTypeId v2) st)
+  in do
+    (evaledL, st') <- evalExpr lhs st
+    (evaledR, st'') <- evalExpr rhs st'
+    comp <- toErrorT $ tryComp evaledL evaledR
+    return $ (VBool $ (if neg then not else id) comp, st'')
 
 -- Use foldr becasue we wan't to evaluate args from right to left like C does.
 -- TODO: https://stackoverflow.com/questions/17055527/lifting-foldr-to-monad
@@ -235,10 +249,9 @@ evalExpr (EPlus _ lhs rhs) st = evalBinExpr varToInt (+) VInt lhs rhs st
 evalExpr (EMinus _ lhs rhs) st = evalBinExpr varToInt (-) VInt lhs rhs st
 evalExpr (ETimes _ lhs rhs) st = evalBinExpr varToInt (*) VInt lhs rhs st
 evalExpr (EDiv _ lhs rhs) st = evalBinExpr varToInt div VInt lhs rhs st -- TODO: Double check that
+-- evalExpr (EMod _ lhs rhs) st = evalBinExpr varToInt mod VInt lhs rhs st -- TODO: Double check that
 evalExpr (EPow _ lhs rhs) st = evalBinExpr varToInt (^) VInt lhs rhs st
 
-evalExpr (EEq _ lhs rhs) st = evalBinExpr varToInt (==) VBool lhs rhs st
-evalExpr (ENeq _ lhs rhs) st = evalBinExpr varToInt (/=) VBool lhs rhs st
 evalExpr (EGeq _ lhs rhs) st = evalBinExpr varToInt (>=) VBool lhs rhs st
 evalExpr (ELeq _ lhs rhs) st = evalBinExpr varToInt (<=) VBool lhs rhs st
 evalExpr (EGt _ lhs rhs) st = evalBinExpr varToInt (>) VBool lhs rhs st
@@ -249,6 +262,11 @@ evalExpr (ELand _ lhs rhs) st = evalBinExpr varToBool (&&) VBool lhs rhs st
 evalExpr (EXor _ lhs rhs) st = evalBinExpr varToBool xor VBool lhs rhs st
 
 evalExpr (ECat _ lhs rhs) st = evalBinExpr varToString (++) VString lhs rhs st
+
+-- Operators '==' and '!=' works with any builtin type and have to be
+-- treated differently for that reason.
+evalExpr (EEq _ lhs rhs) st = evalEqualExpr False lhs rhs st
+evalExpr (ENeq _ lhs rhs) st = evalEqualExpr True lhs rhs st
 
 evalExpr (ELValue p (LValueVar _ (Ident vname))) st = do
   (_, v) <- toErrorT $ getVar vname p st

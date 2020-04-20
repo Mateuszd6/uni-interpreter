@@ -257,6 +257,7 @@ data ErrorDetail
   | EDCantBePrimitiveType String PPos
   | EDVariableNotStruct PPos
   | EDNoMember PPos String String
+  | EDCantCompare PPos String String
   deriving (Show)
 
 showFCol :: PPos -> String -> String
@@ -292,6 +293,9 @@ errorMsg fname (EDCantBePrimitiveType t p) = showFCol p fname ++
 errorMsg fname (EDVariableNotStruct p) = showFCol p fname ++ "Variable or member is not a struct."
 errorMsg fname (EDNoMember p tname memb) = showFCol p fname ++ "Struct `" ++ tname ++ "'" ++
                                  " has no member " ++ memb ++ "."
+errorMsg fname (EDCantCompare p l r) = showFCol p fname ++
+                                       "Can't compare types `" ++ l ++ "' and `" ++ r ++ "'. " ++
+                                       "Only builtin types with matching type can be compared."
 
 data FlowReason
   = FRBreak PPos
