@@ -27,6 +27,7 @@ data Expr a
     | ECat a (Expr a) (Expr a)
     | ETimes a (Expr a) (Expr a)
     | EDiv a (Expr a) (Expr a)
+    | EMod a (Expr a) (Expr a)
     | EPow a (Expr a) (Expr a)
     | EEq a (Expr a) (Expr a)
     | ENeq a (Expr a) (Expr a)
@@ -53,6 +54,7 @@ instance Functor Expr where
         ECat a expr1 expr2 -> ECat (f a) (fmap f expr1) (fmap f expr2)
         ETimes a expr1 expr2 -> ETimes (f a) (fmap f expr1) (fmap f expr2)
         EDiv a expr1 expr2 -> EDiv (f a) (fmap f expr1) (fmap f expr2)
+        EMod a expr1 expr2 -> EMod (f a) (fmap f expr1) (fmap f expr2)
         EPow a expr1 expr2 -> EPow (f a) (fmap f expr1) (fmap f expr2)
         EEq a expr1 expr2 -> EEq (f a) (fmap f expr1) (fmap f expr2)
         ENeq a expr1 expr2 -> ENeq (f a) (fmap f expr1) (fmap f expr2)
@@ -93,6 +95,8 @@ data Stmt a
     | SReturn a (ReturnExpr a)
     | SBreak a
     | SCont a
+    | SAssert a (Expr a)
+    | SPrint a [Expr a]
     | SBlock a (Bind a) [Stmt a]
   deriving (Eq, Ord, Show, Read)
 
@@ -113,6 +117,8 @@ instance Functor Stmt where
         SReturn a returnexpr -> SReturn (f a) (fmap f returnexpr)
         SBreak a -> SBreak (f a)
         SCont a -> SCont (f a)
+        SAssert a expr -> SAssert (f a) (fmap f expr)
+        SPrint a exprs -> SPrint (f a) (map (fmap f) exprs)
         SBlock a bind stmts -> SBlock (f a) (fmap f bind) (map (fmap f) stmts)
 data TupleTarget a = TTar a [IdentOrIgnr a]
   deriving (Eq, Ord, Show, Read)
