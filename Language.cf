@@ -14,6 +14,7 @@ ECat.    Expr ::= Expr "@" Expr2 ;
 
 ETimes.  Expr2 ::= Expr2 "*" Expr3 ;
 EDiv.    Expr2 ::= Expr2 "/" Expr3 ;
+EMod.    Expr2 ::= Expr2 "%" Expr3 ;
 
 EPow.    Expr3 ::= Expr3 "^" Expr4 ;
 
@@ -64,6 +65,8 @@ SIgnore. Stmt1 ::= "_" "=" ExprOrTuple ";" ; -- Not usefull, but would be weird 
 SReturn. Stmt1 ::= "return" ReturnExpr ";" ;
 SBreak.  Stmt1 ::= "break" ";" ;
 SCont.   Stmt1 ::= "continue" ";" ;
+SAssert. Stmt1 ::= "assert" ":" Expr ";" ;
+SPrint.  Stmt1 ::= "print" "(" [Expr] ")" ";" ;
 SBlock.  Stmt1 ::= Bind "{" [Stmt] "}" ;
 _.       Stmt1 ::= Stmt1 ";" ; -- Accept trailing semicolons.
 _.       Stmt  ::= Stmt1 ;
