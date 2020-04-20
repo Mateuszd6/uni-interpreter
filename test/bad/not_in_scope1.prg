@@ -1,4 +1,4 @@
-// FAILS: tests.txt:37:14: Variable `was_greater' not in scope.
+// FAILS: not_in_scope1.prg:36:14: Variable `was_greater' not in scope.
 
 get_int :: () -> int {
     return 3;

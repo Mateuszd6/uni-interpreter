@@ -1,4 +1,4 @@
-// FAILS: tests.txt:6:5: Variable `bar' not in scope.
+// FAILS: unknow_ident1.prg:6:5: Variable `bar' not in scope.
 
 foo : int = 3;
 

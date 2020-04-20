@@ -132,10 +132,12 @@ createVar name v s@(State _ str@(Store vars _ _ next _ _) scp@(Scope vnames _ _)
 
 createFunc :: String -> Stmt PPos -> [Param] -> FRetT -> State -> (FunId, State)
 createFunc name body params ret s@(State _ str@(Store _ funcs _  _ next _) scp@(Scope _ fnames _)) =
-  (next, s{
-      stateStore = str{ storeFuncs = Map.insert next (Func next body ret params scp) funcs,
-                        nextFuncId = next + 1 },
-      stateScope = scp{ scopeFuncs = Map.insert name next fnames } })
+  let scp' = scp{ scopeFuncs = Map.insert name next fnames } -- Allows recursion
+  in
+    (next, s{
+        stateStore = str{ storeFuncs = Map.insert next (Func next body ret params scp') funcs,
+                          nextFuncId = next + 1 },
+        stateScope = scp' })
 
 createStruct :: String -> [(String, TypeId)] -> State -> (TypeId, State)
 createStruct name fields s@(State _ str@(Store _ _ types _ _ next) scp@(Scope _ _ tnames)) =
@@ -242,7 +244,6 @@ data ErrorDetail
   | EDParsingError String
   | EDTypeError String String PPos
   | EDTypeNotFound String PPos
-  | NotImplemented String -- TODO? This should not happen in the final version
   | EDUnexpectedBreak PPos
   | EDUnexpectedContinue PPos
   | EDUnexpectedReturn PPos
@@ -256,47 +257,41 @@ data ErrorDetail
   | EDCantBePrimitiveType String PPos
   | EDVariableNotStruct PPos
   | EDNoMember PPos String String
+  deriving (Show)
 
--- TODO: hardcoded!!!
-file_ :: String
-file_ = "tests.txt"
+showFCol :: PPos -> String -> String
+showFCol (Just (l, c)) fname = fname ++ ":" ++ show l ++ ":" ++ show c ++ ": "
+showFCol Nothing fname = fname ++ ": "
 
-showFCol :: PPos -> String
-showFCol (Just (l, c)) = file_ ++ ":" ++ show l ++ ":" ++ show c ++ ": "
-showFCol Nothing = file_ ++ ": "
-
--- TODO: unify showfcol to be called somewhere else. and do getpos for error detail.
-instance Show ErrorDetail where
-  show (EDVarNotFound name p) = showFCol p ++ "Variable `" ++ name ++ "' not in scope."
-  show (EDVarNotInitialized p) = showFCol p ++ "Variable was not initialized."
-  show (EDFuncNotFound name p) = showFCol p ++ "Function `" ++ name ++ "' not in scope."
-  show (EDParsingError str) = "Parsing error: " ++ str ++ "."
-  show (EDTypeError expected got p) = showFCol p ++ "Type error: "
-                                      ++ "expected `" ++ expected ++ "'"
-                                      ++ ", got `" ++ got ++ "'."
-  show (EDTypeNotFound tname p) = showFCol p ++ "Type `" ++ tname ++ "' not in scope."
-  show (EDUnexpectedBreak p) = showFCol p ++ "`break' is not allowed here."
-  show (EDUnexpectedContinue p) = showFCol p ++ "`continue' is not allowed here."
-  show (EDUnexpectedReturn p) = showFCol p ++ "`return' is not allowed here."
-  show (EDNoReturn p) = showFCol p ++ "Function that returns a value didn't return."
-  show (EDNoReturnNonVoid p) = showFCol p ++ "Void function cannot return a value."
-  show (EDReturnVoid p) = showFCol p ++ "Return without a value when value was expected."
-  show (EDInvalidNumParams p expected got) = showFCol p ++
-    "Invalid number of parameters. Expected " ++ show expected ++
-    ", but got " ++ show got ++ "."
-  show (EDTupleNumbersDontMatch p l r) = showFCol p ++
-    "Numbers of elements in asigned tuples don't " ++
-    "much: left has " ++ show l ++ ", but right has " ++ show r ++ "."
-  show (EDTupleReturned p) = showFCol p ++ "Tuple returned, when single variable expected."
-  show (EDValueReturned p) = showFCol p ++ "Single variable returned, when tuple was expected."
-  show (EDCantBePrimitiveType t p) = showFCol p ++
-                                     "Type must be a struct, not a primitive type." ++
-                                     " (Was: `" ++ t ++ "').";
-  show (EDVariableNotStruct p) = showFCol p ++ "Variable or member is not a struct."
-  show (EDNoMember p tname memb) = showFCol p ++ "Struct `" ++ tname ++ "'" ++
-                                   " has no member " ++ memb ++ "."
-
-  show _ = "Unknown error: No idea what is happening." -- TODO.
+errorMsg :: String -> ErrorDetail -> String
+errorMsg fname (EDVarNotFound name p) = showFCol p fname ++ "Variable `" ++ name ++ "' not in scope."
+errorMsg fname (EDVarNotInitialized p) = showFCol p fname ++ "Variable was not initialized."
+errorMsg fname (EDFuncNotFound name p) = showFCol p fname ++ "Function `" ++ name ++ "' not in scope."
+errorMsg fname (EDParsingError str) = showFCol Nothing fname ++ "Parsing error: " ++ str ++ "."
+errorMsg fname (EDTypeError expected got p) = showFCol p fname ++ "Type error: "
+                                    ++ "expected `" ++ expected ++ "'"
+                                    ++ ", got `" ++ got ++ "'."
+errorMsg fname (EDTypeNotFound tname p) = showFCol p fname ++ "Type `" ++ tname ++ "' not in scope."
+errorMsg fname (EDUnexpectedBreak p) = showFCol p fname ++ "`break' is not allowed here."
+errorMsg fname (EDUnexpectedContinue p) = showFCol p fname ++ "`continue' is not allowed here."
+errorMsg fname (EDUnexpectedReturn p) = showFCol p fname ++ "`return' is not allowed here."
+errorMsg fname (EDNoReturn p) = showFCol p fname ++ "Function that returns a value didn't return."
+errorMsg fname (EDNoReturnNonVoid p) = showFCol p fname ++ "Void function cannot return a value."
+errorMsg fname (EDReturnVoid p) = showFCol p fname ++ "Return without a value when value was expected."
+errorMsg fname (EDInvalidNumParams p expected got) = showFCol p fname ++
+  "Invalid number of parameters. Expected " ++ show expected ++
+  ", but got " ++ show got ++ "."
+errorMsg fname (EDTupleNumbersDontMatch p l r) = showFCol p fname ++
+  "Numbers of elements in asigned tuples don't " ++
+  "much: left has " ++ show l ++ ", but right has " ++ show r ++ "."
+errorMsg fname (EDTupleReturned p) = showFCol p fname ++ "Tuple returned, when single variable expected."
+errorMsg fname (EDValueReturned p) = showFCol p fname ++ "Single variable returned, when tuple was expected."
+errorMsg fname (EDCantBePrimitiveType t p) = showFCol p fname ++
+                                   "Type must be a struct, not a primitive type." ++
+                                   " (Was: `" ++ t ++ "').";
+errorMsg fname (EDVariableNotStruct p) = showFCol p fname ++ "Variable or member is not a struct."
+errorMsg fname (EDNoMember p tname memb) = showFCol p fname ++ "Struct `" ++ tname ++ "'" ++
+                                 " has no member " ++ memb ++ "."
 
 data FlowReason
   = FRBreak PPos

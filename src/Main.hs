@@ -20,7 +20,7 @@ module Main where -- TODO: This line is only to kill unused func warnings.
 -- TODO: Qualify imports
 import Data.Bits (xor)
 import qualified Data.Map.Strict as Map -- TODO: Explain why strict instead of lazy.
--- import System.Environment (getArgs)
+import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import Control.Monad -- TODO: qualify
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
@@ -94,9 +94,6 @@ enforceRetType (VTuple vars) (FRetTTuple types) p st = do
 
 enforceRetType _ (FRetTTuple _) p _ = Fail $ EDValueReturned p
 
-runFile :: FilePath -> IO ()
-runFile f = readFile f >>= run
-
 -- Evaluates integer binary expresion parametrized by the expression func.
 -- TODO: Show iface is needed only for debug, but is fullfiled for our use
 evalBinExpr :: (Show a, Show r) =>
@@ -115,13 +112,11 @@ evalBinExpr varTo func varCtor lhs rhs st = do
 
   (evaledL, st') <- evalExpr lhs st
   evaledLConv <- toErrorT $ varTo st (getPos lhs) evaledL
-  lift $ print evaledL
+  lift $ putStrLn $ show evaledL
 
   (evaledR, st'') <- evalExpr rhs st'
   evaledRConv <- toErrorT $ varTo st (getPos rhs) evaledR
-  lift $ print evaledR
-
-  lift $ putStrLn $ "returning value of: " ++ show (evaledLConv `func` evaledRConv)
+  lift $ putStrLn $ show evaledR
 
   -- Now use the ctor to wrap calculated value back into Var type.
   return (varCtor $ evaledLConv `func` evaledRConv, st'')
@@ -295,8 +290,8 @@ evalExpr (EFnCall p (Ident fname) params) st = do
 
 -- evalExpr _ _ = toErrorT $ Fail $ NotImplemented "This is madness"
 evalExpr expr _ = do -- TODO: This dies!
-  lift $ print expr
-  lift $ putStrLn $ "Cant evaluate expr at: " ++ showFCol (getPos expr)
+  -- lift $ print expr
+  lift $ putStrLn $ "Cant evaluate expr at: " ++ showFCol (getPos expr) ""
   undefined
 
 -- TODO: Make sure that a variable can't be declared twice in the same scope.
@@ -304,13 +299,10 @@ evalExpr expr _ = do -- TODO: This dies!
 -- evalVarDeclImpl, evalVarAsgnImpl have same signatures. This is important so
 -- that we can use them interchangably, e.g. in tuples.
 evalVarDeclImpl :: String -> Var -> PPos -> State -> ErrorT IO State
-evalVarDeclImpl vname var p st = do
-  lift $ putStrLn ("tests.txt:" ++ showLinCol p
-                   ++ "Declaring variable: " ++ vname
-                   ++ " with value: " ++ show var)
+evalVarDeclImpl vname var _ st = do
   let (vid, st') = createVar vname var st
   lift $ putStrLn $ "created variable of varId: " ++ show vid
-  lift $ dumpState st'
+  -- lift $ dumpState st' -- TODO!!!
   return st'
 
 -- TODO: this can be regular Error, not errorT
@@ -534,13 +526,14 @@ evalStmt (SExpr _ expr) st = snd <$> evalExpr expr st
 evalStmt (SVDecl _ vdecl) st = evalVarDecl vdecl st
 
 evalStmt (SFDecl p (Ident fname) (FDDefault _ params bd funRet stmts)) st = do
-  lift $ putStrLn $ showFCol p ++ "Declaring function named `" ++ fname ++ "'."
+  lift $ putStrLn $ "Declaring function named `" ++ fname ++ "'."
   -- TODO: Using Sblock is dangerous because bind may eliminate function arguments.
   retT <- toErrorT $ parseRetType funRet st
   fParams <- toErrorT $ funcToParams params st
   let body = SBlock p bd stmts
+  let (fid, st') = createFunc fname body fParams retT st
 
-  return $ snd $ createFunc fname body fParams retT st
+  return st'
 
 evalStmt (SSDecl _ (Ident sname) (SDDefault _ members)) st =
   toErrorT (snd . flip (createStruct sname) st <$> getStructMemebers members st)
@@ -603,8 +596,8 @@ runProgram (Prog _ stmts) = dontAllowBreakContinue $
                             dontAllowReturn $
                             foldM_ (flip evalStmt) tempDefaultState stmts
 
-run :: String -> IO ()
-run pText = do
+run :: String -> String -> IO ()
+run fname pText = do
   -- This allows us to handle any kind of error in one place. Whether it's a
   -- parsing error, type error or any kind of an execution error.
   result <- runErrorT (toErrorT (parseProgram pText) >>= runProgram)
@@ -612,8 +605,9 @@ run pText = do
     Ok () -> exitSuccess
     -- TODO: This can't happen:
     Flow r _ -> printErr ("Flow is broken: " ++ show r ++ "\n") >> exitFailure
-    Fail reason -> printErr (show reason) >> exitFailure
+    Fail reason -> printErr (errorMsg fname reason) >> exitFailure
 
+-- TODO.
 usage :: IO ()
 usage = do
   putStrLn $ unlines
@@ -626,56 +620,8 @@ usage = do
   exitFailure
 
 main :: IO ()
-main =
-  {-
-  let q = tempDefaultState
-  print q
-  let (_, q') = createVar "foobar" (VInt 3) q
-  let (_, q'') = createVar "baz" (VString "tutututut") q'
-  let (_, q''') = createVar "is_pure" (VBool True) q''
-  dumpState q'''
-
-  let vv = getVar "is_pure_" (Just (1, 2)) q'''
-  print vv
-
-  putStrLn "\n\n"
-
-  -- Easy part:
-  x <- runErrorT $ evalExpr (EInt Nothing 3) tempDefaultState
-  print x
-  putStrLn "\n\n"
-
-  -- Hard part:
-  -- y <- runErrorT $ evalExpr (EPlus Nothing (EBool Nothing (BTrue Nothing)) (EInt Nothing 3)) tempDefaultState
-  y <- runErrorT $ evalExpr (EPlus Nothing (EInt Nothing 3) (EInt Nothing 8)) tempDefaultState
-  print y
-  putStrLn "\n\n"
-
-  -- z <- runErrorT $ evalExpr (ECat Nothing (EString Nothing "Foo") (EInt Nothing 7)) tempDefaultState
-  z <- runErrorT $ evalExpr (ECat Nothing (EString Nothing "Foo") (EString Nothing "Bar")) tempDefaultState
-  print z
-  putStrLn "\n\n"
-
-  w <- runErrorT $ evalExpr (EBool Nothing (BTrue Nothing)) tempDefaultState
-  print w
-  putStrLn "\n\n\n\n\n"
-
-  -- foobar <- runErrorT $ do
-    -- (q, w) <- (\z -> z tempDefaultState) <$> x
-    -- return (q, w)
-  -- case foobar of
-    -- Fail descr -> putStrLn $ "Error occured"
-    -- Ok (q, w) -> putStrLn $ show $ (q, w)
-
-
-  -- y <- runErrorT $ (evalExpr (EInt Nothing 3) >>= (\z -> z tempDefaultState))
-  -- print (x <*> (Ok tempDefaultState))
-
-  putStrLn "Here we go again, motherfucker!" -}
-  getContents >>= run
-  -- args <- getArgs
-  -- case args of
-    -- ["--help"] -> usage
-    -- [] -> getContents >>= run
-    -- "-s":fs -> mapM_ runFile fs
-    -- fs -> mapM_ runFile fs
+main = do -- TODO: Support actual arugments.
+  args <- getArgs
+  case args of
+    [] -> getContents >>= run "*stdin*"
+    f:_ -> readFile f >>= run f
