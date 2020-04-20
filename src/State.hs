@@ -2,7 +2,6 @@ module State where -- TODO: rename to runtime?
 
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
 import qualified Data.Map.Strict as Map -- TODO: Explain why strict instead of lazy.
-import qualified Data.Maybe as Maybe
 import Data.List (find)
 
 import AbsLanguage
@@ -90,6 +89,7 @@ tempDefaultState =
       dummyStmt = SBreak Nothing
   in
     -- TODO: HARDOCDES! 2 - tstring, 0 - tvoid!
+    (snd . createFunc "assert" dummyStmt [("val", 2)] (FRetTSinge 0)) $
     (snd . createFunc "die" dummyStmt [("val", 3)] (FRetTSinge 0)) $
     (snd . createFunc "printString" dummyStmt [("val", 3)] (FRetTSinge 0)) $
     (snd . createFunc "printBool" dummyStmt [("val", 2)] (FRetTSinge 0)) $
@@ -201,8 +201,8 @@ getTypeNameForED tId (State _ _ scp)
   | tId == 2 = "bool"
   | tId == 3 = "string"
   | tId == 4 = "tuple" -- TODO: describe the trick
-  | otherwise = Maybe.fromMaybe ("*unknown* (typeId = " ++ show tId ++ ")") $
-      fst <$> find ((tId ==) . snd) (Map.toList $ scopeTypes scp)
+  | otherwise = maybe ("*unknown* (typeId = " ++ show tId ++ ")") fst $
+                find ((tId ==) . snd) (Map.toList $ scopeTypes scp)
 
 -- typeId is used to determine variable type. We can't use name becasue
 -- TODO: explain and decide whether it is used or not.

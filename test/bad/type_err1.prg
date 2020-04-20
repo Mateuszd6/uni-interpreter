@@ -2,5 +2,5 @@
 
 foo := 1;
 
-if ("boo")
+if ("boo") // here
     foo := 3;

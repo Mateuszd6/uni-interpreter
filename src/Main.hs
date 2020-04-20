@@ -95,7 +95,7 @@ enforceRetType (VTuple vars) (FRetTTuple types) p st = do
 enforceRetType _ (FRetTTuple _) p _ = Fail $ EDValueReturned p
 
 runFile :: FilePath -> IO ()
-runFile f = putStrLn f >> readFile f >>= run
+runFile f = readFile f >>= run
 
 -- Evaluates integer binary expresion parametrized by the expression func.
 -- TODO: Show iface is needed only for debug, but is fullfiled for our use
@@ -148,7 +148,7 @@ fnCallParams (IELDefault _ exprs) st = evalExprsListr exprs st
 
 isBuiltinFunc :: Func -> Bool
 isBuiltinFunc (Func fid _ _ _ _)
-  | fid >= 1 && fid <= 4 = True -- TODO: No hardcode.
+  | fid >= 1 && fid <= 5 = True -- TODO: No hardcode.
   | otherwise = False
 
 executeBuiltin :: Func -> State -> ErrorT IO State
@@ -167,10 +167,17 @@ executeBuiltin (Func 3 _ _ _ _) st = do
   lift $ putStr str
   return st
 
--- TODO: Would be cool to get line number here.
+-- TODO: Would be cool to get line numbers here.
 executeBuiltin (Func 4 _ _ _ _) st = do
   str <- toErrorT $ getVar "val" Nothing st >>= varToString st Nothing . snd
-  lift $ putStrLn ("Program execution died: " ++ str) >> exitFailure
+  lift $ printErr ("Program execution died: " ++ str) >> exitFailure
+
+-- TODO: Would be cool to get line numbers here.
+executeBuiltin (Func 5 _ _ _ _) st = do
+  expr <- toErrorT $ getVar "val" Nothing st >>= varToBool st Nothing . snd
+  if not expr
+    then lift $ printErr "Program execution died: Assertion failed." >> exitFailure
+    else return st
 
 executeBuiltin _ _ =
   error "This is not a builtin function. This should not happen."
@@ -252,7 +259,7 @@ evalExpr (ELValue p (LValueVar _ (Ident vname))) st = do
   (_, v) <- toErrorT $ getVar vname p st
   return (v, st)
 
-evalExpr (ELValue p lv@(LValueMemb _ _ _)) st = do
+evalExpr (ELValue p lv@LValueMemb {}) st = do
   (members, (_, var)) <- toErrorT $ lvalueMem lv st
   lift $ putStrLn $ "Var: " ++ show var
   lift $ putStrLn $ "Members: " ++ show members
@@ -486,10 +493,10 @@ assgnStructField _ [] _ _ _ = undefined -- TODO: Should not happen.
 
 evalStmt :: Stmt PPos -> State -> ErrorT IO State
 
-evalStmt (SBlock _ _ stmts) st = scope (\s -> foldM (flip evalStmt) s stmts) st
+evalStmt (SBlock _ _ stmts) st = scope (flip (foldM (flip evalStmt)) stmts) st
 
-evalStmt (SIf _ expr stmt) st = evalIfStmtImpl expr stmt Nothing st
-evalStmt (SIfElse _ expr stmt elStmt) st = evalIfStmtImpl expr stmt (Just elStmt) st
+evalStmt (SIf _ expr stmt) st = scope (evalIfStmtImpl expr stmt Nothing) st
+evalStmt (SIfElse _ expr stmt elStmt) st = scope (evalIfStmtImpl expr stmt (Just elStmt)) st
 
 -- TODO: Should this be scoped?
 evalStmt (SWhile _ expr stmt) st = scope (catchBreak . evalLoopImpl expr stmt Nothing) st
@@ -546,6 +553,9 @@ evalStmt (STAssign p (TTar _ targs) (EOTTuple _ exprs)) st = do
   (vs, st') <- evalExprsListr exprs st
   tupleAsgnImpl targs vs p st'
 
+evalStmt (SIgnore _ (EOTRegular _ expr)) st = snd <$> evalExpr expr st
+evalStmt (SIgnore _ (EOTTuple _ exprs)) st = snd <$> evalExprsListr exprs st
+
 evalStmt (STDecl p (TTar _ targs) (EOTRegular _ expr)) st = do
   (var, st') <- evalExpr expr st
   vs <- toErrorT $ varToTuple st' p var
@@ -587,16 +597,6 @@ evalStmt (SReturn p (RExRegular _ (EOTTuple _ exprs))) st = do
 evalStmt (SBreak p) st = toErrorT $ Flow (FRBreak p) st
 evalStmt (SCont p) st = toErrorT $ Flow (FRContinue p) st
 
-evalStmt stmt st = do -- TODO: This dies!
-  lift $ putStrLn ("tests.txt:" ++ showLinCol (getPos stmt)
-                    ++ " evaluating statement in state: "
-                    ++ show (counter st))
-  lift $ putStrLn ("tests.txt:" ++ showLinCol (getPos stmt)
-                   ++ "No idea how to eavluate " ++ show stmt)
-
-  -- return st { counter = counter st + 1 }
-  return undefined
-
 -- Evaluate program in initial state. TODO: rename to eval program?
 runProgram :: Program PPos -> ErrorT IO ()
 runProgram (Prog _ stmts) = dontAllowBreakContinue $
@@ -611,8 +611,8 @@ run pText = do
   case result of
     Ok () -> exitSuccess
     -- TODO: This can't happen:
-    Flow r _ -> putStrLn ("Flow is broken: " ++ show r ++ "\n") >> exitFailure
-    Fail reason -> print reason >> exitFailure
+    Flow r _ -> printErr ("Flow is broken: " ++ show r ++ "\n") >> exitFailure
+    Fail reason -> printErr (show reason) >> exitFailure
 
 usage :: IO ()
 usage = do

@@ -8,11 +8,19 @@ errors=0
 for f in ./bad/*.prg; do
     echo -n "Testing" $f
     # TODO: make sure stdout is empty and error msges are pritned to stderr
-    ../interpreter < $f &> ./test.err
+    ../interpreter < $f > /dev/null 2> ./test.err
+    EXIT_CODE=$?
     diff > temp.diff                                                           \
       <(cat $f | grep -e "^// FAILS: " | head -n 1 | sed "s/^\/\/ FAILS: //g") \
-      <(cat ./test.err | tail -n 1)
-    if [ $? -ne 0 ]; then
+      <(cat ./test.err)
+
+    EXPECTED_RET=0
+    cat $f | head -n 1 | grep -qe "^// FAILS: "
+    if [ $? -eq 0 ]; then
+        EXPECTED_RET=1 # Expect the test to fail.
+    fi
+
+    if [ $EXIT_CODE -ne $EXPECTED_RET ]; then
         mkdir -p failed_tests
         mkdir -p failed_tests/bad
         mkdir -p failed_tests/good

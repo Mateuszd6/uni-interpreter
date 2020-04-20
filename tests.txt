@@ -8,12 +8,22 @@ foo :: struct {
     y : bar;
 }
 
+printIntWrapper :: (x : int) {
+    x + 3;
+}
 
 m : foo;
 m = new foo {};
 m.x = 4;
 m.y = new bar{};
-q : int = m.y;
+
+[q_, w_] := [m, m.y];
+q : int = q_.y.r; // TODO: We want here to get the uninitialized error - it would be a
+w : int = w_.r;   //       valuable faeture.
+
+
+printIntWrapper(q);
+printInt(w);
 
 m.y.w = 3;
 m.y.r = 4;

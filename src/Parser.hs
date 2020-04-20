@@ -11,6 +11,8 @@ import ParLanguage (pProgram, myLexer)
 import AbsLanguage
 import qualified ErrM
 
+import System.IO (hPutStrLn, stderr)
+
 import State
 
 -- TODO: describe that it is a parsing position.
@@ -77,3 +79,8 @@ instance Pos (Expr (Maybe (Int, Int))) where
 instance Pos (LValue (Maybe (Int, Int))) where
   getPos (LValueVar pos _) = pos
   getPos (LValueMemb pos _ _) = pos
+
+
+-- TODO: If it takes too much space, move to common.hs
+printErr :: String -> IO ()
+printErr = hPutStrLn stderr
