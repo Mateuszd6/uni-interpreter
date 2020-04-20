@@ -1,29 +1,29 @@
-end := 4;
-sum := 0;
-for (i : 1 .. end) { // Loop boundary does not have to be a constant.
-    sum = sum + i;
-    printString ("Adding ");
-    printInt (i);
-    printString (""); // TODO: Fix printing.
-}
-assert (sum == 10);
-
-// Now calculate another sum, using different loop.
-x := 0;
-while (sum > 0) {
-    x = x + sum;
-    sum = sum - 1;
-}
-assert (x == 55);
-
 isPrime :: (n : int) -> bool {
     if (n <= 1)
-	return false;
+        return false;
 
-    i := 0;
-    while (i * i < n) {
-	if ()
-
-        i = i + 1;
+    i := 2;
+    while ((i * i) <= n) { // TODO: remove brackets once fixed.
+        if ((n % i) == 0)
+            return false;
+        else
+            i = i + 1;
     }
+
+    return true;
 }
+
+assert: isPrime(1) == false;
+assert: isPrime(2) == true;
+assert: isPrime(3) == true;
+assert: isPrime(4) == false;
+assert: isPrime(5) == true;
+assert: isPrime(6) == false;
+assert: isPrime(7) == true;
+
+isStr :: (b : bool) -> string {
+    if (b) return "is";
+    else return "is not";
+}
+
+print("1241", isStr(isPrime(1241)), "a prime number"); // 1241 = 17 * 73

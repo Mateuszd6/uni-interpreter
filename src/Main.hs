@@ -111,11 +111,9 @@ evalBinExpr varTo func varCtor lhs rhs st = do
 
   (evaledL, st') <- evalExpr lhs st
   evaledLConv <- toErrorT $ varTo st (getPos lhs) evaledL
-  lift $ putStrLn $ show evaledL
 
   (evaledR, st'') <- evalExpr rhs st'
   evaledRConv <- toErrorT $ varTo st (getPos rhs) evaledR
-  lift $ putStrLn $ show evaledR
 
   -- Now use the ctor to wrap calculated value back into Var type.
   return (varCtor $ evaledLConv `func` evaledRConv, st'')
@@ -133,7 +131,7 @@ evalEqualExpr neg lhs rhs st =
     (evaledL, st') <- evalExpr lhs st
     (evaledR, st'') <- evalExpr rhs st'
     comp <- toErrorT $ tryComp evaledL evaledR
-    return $ (VBool $ (if neg then not else id) comp, st'')
+    return (VBool $ (if neg then not else id) comp, st'')
 
 -- Use foldr becasue we wan't to evaluate args from right to left like C does.
 -- TODO: https://stackoverflow.com/questions/17055527/lifting-foldr-to-monad
@@ -229,27 +227,40 @@ evalExpr :: Expr PPos -> State -> ErrorT IO (Var, State)
 
 evalExpr (EInt _ intVal) st = do
   let res = VInt $ fromInteger intVal
-  lift $ putStrLn $ "Evaluated integer of value: " ++ show intVal
   return (res, st)
 
 evalExpr (EString _ strVal) st = do
-  -- BNFC seems to keep the enclosing quotes, so remove them.
-  -- TODO: Should also unescape double quotes in the middle.
-  let res = VString $ tail $ init strVal
-  lift $ putStrLn $ "Evaluated string of value: " ++ strVal
-  return (res, st)
+  -- BNFC seems to keep the string escaped, so we have to unescape it.
+  let unescapeImpl :: String -> String -> String
+      unescapeImpl acc ('\\':'a':sx) = unescapeImpl ('\a':acc) sx
+      unescapeImpl acc ('\\':'b':sx) = unescapeImpl ('\b':acc) sx
+      unescapeImpl acc ('\\':'f':sx) = unescapeImpl ('\f':acc) sx
+      unescapeImpl acc ('\\':'n':sx) = unescapeImpl ('\n':acc) sx
+      unescapeImpl acc ('\\':'r':sx) = unescapeImpl ('\r':acc) sx
+      unescapeImpl acc ('\\':'t':sx) = unescapeImpl ('\t':acc) sx
+      unescapeImpl acc ('\\':'v':sx) = unescapeImpl ('\v':acc) sx
+      unescapeImpl acc ('\\':'\'':sx) = unescapeImpl ('\'':acc) sx
+      unescapeImpl acc ('\\':'"':sx) = unescapeImpl ('"':acc) sx
+      unescapeImpl acc ('\\':'\\':sx) = unescapeImpl ('\\':acc) sx
+      unescapeImpl acc ['\\'] = acc -- \ at the end should not parse.
+      unescapeImpl acc (x:sx) = unescapeImpl (x:acc) sx
+      unescapeImpl acc [] = acc
+
+      unescape :: String -> String
+      unescape = reverse . unescapeImpl [] . tail . init
+
+  return (VString $ unescape strVal, st)
 
 -- Bfnc doesn't treat booleans as a native types, so unwrap it.
 evalExpr (EBool _ boolVal) st = do
   let bl = case boolVal of { BTrue _ -> True; BFalse _ -> False }
-  lift $ putStrLn $ "Evaluated boolean of value: " ++ show bl
   return (VBool bl, st)
 
 evalExpr (EPlus _ lhs rhs) st = evalBinExpr varToInt (+) VInt lhs rhs st
 evalExpr (EMinus _ lhs rhs) st = evalBinExpr varToInt (-) VInt lhs rhs st
 evalExpr (ETimes _ lhs rhs) st = evalBinExpr varToInt (*) VInt lhs rhs st
 evalExpr (EDiv _ lhs rhs) st = evalBinExpr varToInt div VInt lhs rhs st -- TODO: Double check that
--- evalExpr (EMod _ lhs rhs) st = evalBinExpr varToInt mod VInt lhs rhs st -- TODO: Double check that
+evalExpr (EMod _ lhs rhs) st = evalBinExpr varToInt mod VInt lhs rhs st -- TODO: Double check that
 evalExpr (EPow _ lhs rhs) st = evalBinExpr varToInt (^) VInt lhs rhs st
 
 evalExpr (EGeq _ lhs rhs) st = evalBinExpr varToInt (>=) VBool lhs rhs st
@@ -505,6 +516,20 @@ evalStmt :: Stmt PPos -> State -> ErrorT IO State
 
 evalStmt (SBlock _ _ stmts) st = scope (flip (foldM (flip evalStmt)) stmts) st
 
+evalStmt (SAssert p expr) st = do
+  (var, st') <- evalExpr expr st
+  bool <- toErrorT $ varToBool st' (getPos expr) var
+  if not bool
+    then toErrorT $ Fail $ EDAssertFail p
+    else return st'
+
+evalStmt (SPrint _ exprs) st =
+  let printFstRetSnd :: Show a => (a, b) -> IO b
+      printFstRetSnd (x, y) = putStr (show x) >> return y
+  in
+    foldM (\s ex -> evalExpr ex s >>= lift . printFstRetSnd) st exprs
+
+
 evalStmt (SIf _ expr stmt) st = scope (evalIfStmtImpl expr stmt Nothing) st
 evalStmt (SIfElse _ expr stmt elStmt) st = scope (evalIfStmtImpl expr stmt (Just elStmt)) st
 
@@ -549,9 +574,7 @@ evalStmt (SFDecl p (Ident fname) (FDDefault _ params bd funRet stmts)) st = do
   retT <- toErrorT $ parseRetType funRet st
   fParams <- toErrorT $ funcToParams params st
   let body = SBlock p bd stmts
-  let (fid, st') = createFunc fname body fParams retT st
-
-  return st'
+  return $ snd $ createFunc fname body fParams retT st
 
 evalStmt (SSDecl _ (Ident sname) (SDDefault _ members)) st =
   toErrorT (snd . flip (createStruct sname) st <$> getStructMemebers members st)

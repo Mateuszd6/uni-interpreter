@@ -20,7 +20,15 @@ data Var
   | VString String
   | VTuple [Var]
   | VStruct { vStructTId :: TypeId, vStructData :: Struct }
-  deriving (Show)
+
+instance Show Var where
+  show VEmpty = "void "
+  show (VInt i) = show i ++ " "
+  show (VBool b) = show b ++ " "
+  show (VString s) = s ++ " "
+  show VStruct { } = "??" -- TODO: This is possible...
+  show VTuple { } = "??" -- TODO: This shoudl't be possible to do.
+  show VUninitialized { } = "??" -- TODO: Kill unitinialized
 
 -- TODO: So that it is clear, that it is a _definition_ of a struct.
 data Strct = Strct { strctName :: String, strctFields :: Map.Map String TypeId }
@@ -258,6 +266,7 @@ data ErrorDetail
   | EDVariableNotStruct PPos
   | EDNoMember PPos String String
   | EDCantCompare PPos String String
+  | EDAssertFail PPos
   deriving (Show)
 
 showFCol :: PPos -> String -> String
@@ -296,6 +305,8 @@ errorMsg fname (EDNoMember p tname memb) = showFCol p fname ++ "Struct `" ++ tna
 errorMsg fname (EDCantCompare p l r) = showFCol p fname ++
                                        "Can't compare types `" ++ l ++ "' and `" ++ r ++ "'. " ++
                                        "Only builtin types with matching type can be compared."
+
+errorMsg fname (EDAssertFail p) = showFCol p fname ++ "Assertion failed."
 
 data FlowReason
   = FRBreak PPos

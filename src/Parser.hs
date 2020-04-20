@@ -49,6 +49,8 @@ instance Pos (Stmt (Maybe (Int, Int))) where
   getPos (SIgnore pos _) = pos
   getPos (SReturn pos _) = pos
   getPos (SBreak pos) = pos
+  getPos (SAssert pos _) = pos
+  getPos (SPrint pos _) = pos
   getPos (SCont pos) = pos
   getPos (SBlock pos _ _) = pos
 
@@ -58,6 +60,7 @@ instance Pos (Expr (Maybe (Int, Int))) where
   getPos (ECat pos _ _) = pos
   getPos (ETimes pos _ _) = pos
   getPos (EDiv pos _ _) = pos
+  getPos (EMod pos _ _) = pos
   getPos (EPow pos _ _) = pos
   getPos (EEq pos _ _) = pos
   getPos (ENeq pos _ _) = pos

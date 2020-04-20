@@ -1,3 +1,7 @@
+print("foo", "\n");
+assert: false;
+x : qweqjeijl;
+
 
 // The contents of this file should be (more or less) equivalent to README.pdf,
 // however this file is correct expression in the defined grammar and should

@@ -8,8 +8,8 @@
     sum := int_var + int_var2;
     mod := int_var2 ^ 3;
 
-    assert(sum == 7);
-    assert(mod == 64);
+    assert: sum == 7;
+    assert: mod == 64;
 }
 
 {
@@ -17,7 +17,7 @@
     string_var2 := "bar"; // Deduced type.
     cat := string_var @ string_var2;
 
-    assert(cat == "foobar");
+    assert: cat == "foobar";
 }
 
 {
@@ -26,7 +26,7 @@
     boolean_var2 = (1 > 3); // Asignment (not declaration).
     xor := boolean_var ^^ boolean_var2;
 
-    assert(xor == true);
-    assert(xor != false);
-    assert(xor); // Boolean expr also can (of course) be used like this.
+    assert: xor == true;
+    assert: xor != false;
+    assert: xor; // Boolean expr also can (of course) be used like this.
 }
