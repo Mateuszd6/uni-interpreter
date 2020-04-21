@@ -153,42 +153,6 @@ fnCallParams :: InvokeExprList PPos -> State -> ErrorT IO ([Var], State)
 fnCallParams (IELEmpty _) st = toErrorT $ Ok ([], st)
 fnCallParams (IELDefault _ exprs) st = evalExprsListr exprs st
 
-isBuiltinFunc :: Func -> Bool
-isBuiltinFunc (Func fid _ _ _ _)
-  | fid >= 1 && fid <= 5 = True -- TODO: No hardcode.
-  | otherwise = False
-
-executeBuiltin :: Func -> State -> ErrorT IO State
-executeBuiltin (Func 1 _ _ _ _) st = do
-  int <- toErrorT $ getVar "val" Nothing st >>= varToInt st Nothing . snd
-  lift $ putStr $ show int
-  return st
-
-executeBuiltin (Func 2 _ _ _ _) st = do
-  bool <- toErrorT $ getVar "val" Nothing st >>= varToBool st Nothing . snd
-  lift $ putStr $ show bool
-  return st
-
-executeBuiltin (Func 3 _ _ _ _) st = do
-  str <- toErrorT $ getVar "val" Nothing st >>= varToString st Nothing . snd
-  lift $ putStr str
-  return st
-
--- TODO: Would be cool to get line numbers here.
-executeBuiltin (Func 4 _ _ _ _) st = do
-  str <- toErrorT $ getVar "val" Nothing st >>= varToString st Nothing . snd
-  lift $ printErr ("Program execution died: " ++ str) >> exitFailure
-
--- TODO: Would be cool to get line numbers here.
-executeBuiltin (Func 5 _ _ _ _) st = do
-  expr <- toErrorT $ getVar "val" Nothing st >>= varToBool st Nothing . snd
-  if not expr
-    then lift $ printErr "Program execution died: Assertion failed." >> exitFailure
-    else return st
-
-executeBuiltin _ _ =
-  error "This is not a builtin function. This should not happen."
-
 -- Value is returned in a tricky way through 'Flow', so it has to be catched.
 evalFunction :: Func -> [Var] -> PPos -> State -> ErrorT IO State
 evalFunction func invokeP p st = do
@@ -198,8 +162,7 @@ evalFunction func invokeP p st = do
            st { stateScope = funcScope func } $
            zip invokeP $ funcParams func
 
-  if isBuiltinFunc func then executeBuiltin func st'
-                        else evalStmt (funcBody func) st'
+  evalStmt (funcBody func) st'
 
 -- TODO: make sure it lays next to assgnStructField.
 getStructField :: (TypeId, Struct) -> [String] -> PPos -> State -> Error Var

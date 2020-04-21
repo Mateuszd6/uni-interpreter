@@ -90,19 +90,7 @@ tempDefaultStore :: Store
 tempDefaultStore = Store Map.empty Map.empty Map.empty 1 1 5 -- TODO: Make sure id don't bind reserved onces.
 
 tempDefaultState :: State
-tempDefaultState =
-  -- dummyStmt is a hack, we will never evaluate it, but undefined causes some
-  -- problems because we use strict map which forces an evaluation.
-  let st = State 0 tempDefaultStore tempDefaultScope
-      dummyStmt = SBreak Nothing
-  in
-    -- TODO: HARDOCDES! 2 - tstring, 0 - tvoid!
-    (snd . createFunc "assert" dummyStmt [("val", 2)] (FRetTSinge 0)) $
-    (snd . createFunc "die" dummyStmt [("val", 3)] (FRetTSinge 0)) $
-    (snd . createFunc "printString" dummyStmt [("val", 3)] (FRetTSinge 0)) $
-    (snd . createFunc "printBool" dummyStmt [("val", 2)] (FRetTSinge 0)) $
-    (snd . createFunc "printInt" dummyStmt [("val", 1)] (FRetTSinge 0))
-    st
+tempDefaultState = State 0 tempDefaultStore tempDefaultScope
 
 -- TODO: Move to dumping
 dumpState :: State -> IO ()
