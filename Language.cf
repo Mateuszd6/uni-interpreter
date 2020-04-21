@@ -86,9 +86,12 @@ IOIIgnore. IdentOrIgnr ::= "_" ;
 (:[]).   [IdentOrIgnr] ::= IdentOrIgnr ;
 (:).     [IdentOrIgnr] ::= IdentOrIgnr "," [IdentOrIgnr] ;
 
-DVDecl.       VarDecl ::= Ident ":" Type ; -- Declare do not assign value.
-DVDeclAsgn.   VarDecl ::= Ident ":" Type "=" Expr ; -- Decalre + assign, type is explicit.
-DVDeclDeduce. VarDecl ::= Ident ":" "=" Expr ; -- Decalre + assign, type is deduced.
+DVDecl.       VarDecl ::= Ident VarSpec ":" Type ; -- Declare do not assign value.
+DVDeclAsgn.   VarDecl ::= Ident VarSpec ":" Type "=" Expr ; -- Decalre + assign, type is explicit.
+DVDeclDeduce. VarDecl ::= Ident VarSpec ":" "=" Expr ; -- Decalre + assign, type is deduced.
+
+VSReadOnly.   VarSpec ::= "!" ;
+VSNone.	      VarSpec ::= ;
 
 SDDefault. StrcDecl ::= "struct" "{" StrcMembers "}" ;
 

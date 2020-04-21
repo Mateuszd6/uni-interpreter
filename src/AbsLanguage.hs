@@ -134,16 +134,23 @@ instance Functor IdentOrIgnr where
         IOIIdent a ident -> IOIIdent (f a) ident
         IOIIgnore a -> IOIIgnore (f a)
 data VarDecl a
-    = DVDecl a Ident (Type a)
-    | DVDeclAsgn a Ident (Type a) (Expr a)
-    | DVDeclDeduce a Ident (Expr a)
+    = DVDecl a Ident (VarSpec a) (Type a)
+    | DVDeclAsgn a Ident (VarSpec a) (Type a) (Expr a)
+    | DVDeclDeduce a Ident (VarSpec a) (Expr a)
   deriving (Eq, Ord, Show, Read)
 
 instance Functor VarDecl where
     fmap f x = case x of
-        DVDecl a ident type_ -> DVDecl (f a) ident (fmap f type_)
-        DVDeclAsgn a ident type_ expr -> DVDeclAsgn (f a) ident (fmap f type_) (fmap f expr)
-        DVDeclDeduce a ident expr -> DVDeclDeduce (f a) ident (fmap f expr)
+        DVDecl a ident varspec type_ -> DVDecl (f a) ident (fmap f varspec) (fmap f type_)
+        DVDeclAsgn a ident varspec type_ expr -> DVDeclAsgn (f a) ident (fmap f varspec) (fmap f type_) (fmap f expr)
+        DVDeclDeduce a ident varspec expr -> DVDeclDeduce (f a) ident (fmap f varspec) (fmap f expr)
+data VarSpec a = VSReadOnly a | VSNone a
+  deriving (Eq, Ord, Show, Read)
+
+instance Functor VarSpec where
+    fmap f x = case x of
+        VSReadOnly a -> VSReadOnly (f a)
+        VSNone a -> VSNone (f a)
 data StrcDecl a = SDDefault a (StrcMembers a)
   deriving (Eq, Ord, Show, Read)
 
