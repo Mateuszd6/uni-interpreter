@@ -118,7 +118,7 @@ dumpState s = do
       mapM_ (putStrLn . (\(x, y) -> "      " ++ show x ++ " -> " ++ show y))
       . Map.toList
 
--- | Create new variable and add it to the state.
+-- Create new variable and add it to the state.
 createVar :: String -> Var -> State -> (VarId, State)
 createVar name v s@(State _ str@(Store vars _ _ next _ _) scp@(Scope vnames _ _)) =
   (next, s{
@@ -147,7 +147,7 @@ createStruct name fields s@(State _ str@(Store _ _ types _ _ next) scp@(Scope _ 
 -- getVar vId (State _ store _) =
   -- errorFromMaybe VarNotFoundError $ Map.lookup vId $ storeVars store
 
--- | Get variable by name
+-- Get variable by name
 getVar :: String -> PPos -> State -> Error (VarId, Var)
 getVar vname p (State _ str scp) =
   errorFromMaybe (EDVarNotFound vname p) $ do
@@ -190,8 +190,8 @@ getTypeDescr :: TypeId -> PPos -> State -> Error Strct
 getTypeDescr tId p st = errorFromMaybe (EDVariableNotStruct p) $
   Map.lookup tId $ storeTypes $ stateStore st
 
--- | This is reverse map lookup, which is slow, but is done only once, when
---   reporting the type error, in case when program is exploding anyway.
+-- This is reverse map lookup, which is slow, but is done only once, when
+-- reporting the type error, in case when program is exploding anyway.
 getTypeNameForED :: TypeId -> State -> String
 getTypeNameForED tId (State _ _ scp)
   | tId == 0 = "void"
@@ -255,6 +255,8 @@ data ErrorDetail
   | EDNoMember PPos String String
   | EDCantCompare PPos String String
   | EDAssertFail PPos
+  | EDTupleNotAllowed PPos
+  | EDDivideByZero PPos
   deriving (Show)
 
 showFCol :: PPos -> String -> String
@@ -295,6 +297,8 @@ errorMsg fname (EDCantCompare p l r) = showFCol p fname ++
                                        "Only builtin types with matching type can be compared."
 
 errorMsg fname (EDAssertFail p) = showFCol p fname ++ "Assertion failed."
+errorMsg fname (EDTupleNotAllowed p) = showFCol p fname ++ "Tuple is not allowed here."
+errorMsg fname (EDDivideByZero p) = showFCol p fname ++ "Divide by zero."
 
 data FlowReason
   = FRBreak PPos
@@ -366,12 +370,12 @@ instance (Functor m, Monad m) => Applicative (ErrorT m) where
 
   m *> k = m >> k -- TODO(MD): Invesitgate
 
--- | Convert Maybe a to Error a. If value is Nothing return an error with
---   provided description.
+-- Convert Maybe a to Error a. If value is Nothing return an error with
+-- provided description.
 errorFromMaybe :: ErrorDetail -> Maybe a -> Error a
 errorFromMaybe _ (Just x) = Ok x
 errorFromMaybe det Nothing = Fail det
 
--- | Promote regular Error into ErrorT with any wrapped monad.
+-- Promote regular Error into ErrorT with any wrapped monad.
 toErrorT :: Monad m => Error a -> ErrorT m a
 toErrorT = ErrorT . return

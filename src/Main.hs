@@ -3,19 +3,6 @@ module Main where -- TODO: This line is only to kill unused func warnings.
 -- TODO: Void variable can be the RHS on the deduced type.
 -- TODO: It is possible to make a struct of name 'void'
 -- TODO: Reserved names for structs and functions.
--- TODO: State in printInt seems to be broken:
---       bar :: struct {
---           w : int;
---           r : int;
---       }
---       foo :: struct {
---           x : int;
---           y : bar;
---       }
---       m : foo;
---       m = new foo {};
---       m.y = new bar{};
---       printInt(m.y.w); -- <- This is broken
 
 -- TODO: Qualify imports
 import Data.Bits (xor)
@@ -77,7 +64,7 @@ enforce cond err
   | cond = Ok ()
   | otherwise = Fail err
 
--- | Make sure the var is of the desired type or fail with a TypeError.
+-- Make sure the var is of the desired type or fail with a TypeError.
 enforceType :: Var -> TypeId -> PPos -> State -> Error ()
 enforceType v tId p st
   | varTypeId v == tId = Ok ()
@@ -94,19 +81,18 @@ enforceRetType (VTuple vars) (FRetTTuple types) p st = do
 
 enforceRetType _ (FRetTTuple _) p _ = Fail $ EDValueReturned p
 
--- Evaluates integer binary expresion parametrized by the expression func.
--- TODO: Show iface is needed only for debug, but is fullfiled for our use
-evalBinExpr :: (Show a, Show r) =>
-                  (State -> PPos -> Var -> Error a) -> -- Convert Var to desired type.
-                  (a -> a -> r) -> -- Func performed on wrapped value.
-                  (r -> Var) -> -- Ctor that wraps computed value back to Var.
-                  Expr PPos -> -- LHS expression.
-                  Expr PPos -> -- RHS expression.
-                  State ->
-                  ErrorT IO (Var, State)
+-- Evaluates binary expresion with parametrized the func.
+evalBinExpr :: (State -> PPos -> Var -> Error a) -> -- Convert Var to desired type.
+               (a -> a -> r) -> -- Func performed on wrapped value.
+               (r -> Var) -> -- Ctor that wraps computed value back to Var.
+               Expr PPos -> -- LHS expression.
+               Expr PPos -> -- RHS expression.
+               Maybe (a -> a -> PPos -> Error ()) -> -- Constraints for the vars.
+               State ->
+               ErrorT IO (Var, State)
 
 -- TODO: Ppos.
-evalBinExpr varTo func varCtor lhs rhs st = do
+evalBinExpr varTo func varCtor lhs rhs constr st = do
   -- The *Conv variables are unwraped value from vars with desired type.
 
   (evaledL, st') <- evalExpr lhs st
@@ -114,6 +100,10 @@ evalBinExpr varTo func varCtor lhs rhs st = do
 
   (evaledR, st'') <- evalExpr rhs st'
   evaledRConv <- toErrorT $ varTo st (getPos rhs) evaledR
+
+  toErrorT $ case constr of
+    Just f -> f evaledLConv evaledRConv $ getPos rhs
+    Nothing -> Ok ()
 
   -- Now use the ctor to wrap calculated value back into Var type.
   return (varCtor $ evaledLConv `func` evaledRConv, st'')
@@ -146,8 +136,13 @@ appendFst xs (x, b) = (x:xs, b)
 -- state. Each expression is evaluated in a new state (right to left).
 -- TODO: Try to save ppos so that erorss are nicer here.
 evalExprsListr :: [Expr PPos] -> State -> ErrorT IO ([Var], State)
-evalExprsListr exprs st =
-  foldrM (\ex (vars, s) -> appendFst vars <$> evalExpr ex s) ([], st) exprs
+evalExprsListr exprs st = do
+  (vars, st') <- foldrM (\ex (vars, s) -> appendFst vars <$> evalExpr ex s) ([], st) exprs
+  toErrorT $ mapM_ (\(e, v) -> case v of
+                                 VTuple _ -> Fail $ EDTupleNotAllowed $ getPos e
+                                 _ -> Ok ())
+    $ zip exprs vars
+  return (vars, st')
 
 fnCallParams :: InvokeExprList PPos -> State -> ErrorT IO ([Var], State)
 fnCallParams (IELEmpty _) st = toErrorT $ Ok ([], st)
@@ -181,6 +176,10 @@ getStructField (tId, struct) (n:ns) p st = do
   getStructField (destTypeId, destStruct) ns p st
 
 getStructField _ [] _ _ = undefined -- TODO: Should not happen.
+
+checkDivByZero :: Int -> Int -> PPos -> Error ()
+checkDivByZero _ 0 p = Fail $ EDDivideByZero p
+checkDivByZero _ _ _ = Ok ()
 
 evalExpr :: Expr PPos -> State -> ErrorT IO (Var, State)
   -- TODO: Left:
@@ -219,23 +218,23 @@ evalExpr (EBool _ boolVal) st = do
   let bl = case boolVal of { BTrue _ -> True; BFalse _ -> False }
   return (VBool bl, st)
 
-evalExpr (EPlus _ lhs rhs) st = evalBinExpr varToInt (+) VInt lhs rhs st
-evalExpr (EMinus _ lhs rhs) st = evalBinExpr varToInt (-) VInt lhs rhs st
-evalExpr (ETimes _ lhs rhs) st = evalBinExpr varToInt (*) VInt lhs rhs st
-evalExpr (EDiv _ lhs rhs) st = evalBinExpr varToInt div VInt lhs rhs st -- TODO: Double check that
-evalExpr (EMod _ lhs rhs) st = evalBinExpr varToInt mod VInt lhs rhs st -- TODO: Double check that
-evalExpr (EPow _ lhs rhs) st = evalBinExpr varToInt (^) VInt lhs rhs st
+evalExpr (EPlus _ lhs rhs) st = evalBinExpr varToInt (+) VInt lhs rhs Nothing st
+evalExpr (EMinus _ lhs rhs) st = evalBinExpr varToInt (-) VInt lhs rhs Nothing st
+evalExpr (ETimes _ lhs rhs) st = evalBinExpr varToInt (*) VInt lhs rhs Nothing st
+evalExpr (EDiv _ lhs rhs) st = evalBinExpr varToInt div VInt lhs rhs (Just checkDivByZero) st
+evalExpr (EMod _ lhs rhs) st = evalBinExpr varToInt mod VInt lhs rhs (Just checkDivByZero) st
+evalExpr (EPow _ lhs rhs) st = evalBinExpr varToInt (^) VInt lhs rhs Nothing st
 
-evalExpr (EGeq _ lhs rhs) st = evalBinExpr varToInt (>=) VBool lhs rhs st
-evalExpr (ELeq _ lhs rhs) st = evalBinExpr varToInt (<=) VBool lhs rhs st
-evalExpr (EGt _ lhs rhs) st = evalBinExpr varToInt (>) VBool lhs rhs st
-evalExpr (ELt _ lhs rhs) st = evalBinExpr varToInt (<) VBool lhs rhs st
+evalExpr (EGeq _ lhs rhs) st = evalBinExpr varToInt (>=) VBool lhs rhs Nothing st
+evalExpr (ELeq _ lhs rhs) st = evalBinExpr varToInt (<=) VBool lhs rhs Nothing st
+evalExpr (EGt _ lhs rhs) st = evalBinExpr varToInt (>) VBool lhs rhs Nothing st
+evalExpr (ELt _ lhs rhs) st = evalBinExpr varToInt (<) VBool lhs rhs Nothing st
 
-evalExpr (ELor _ lhs rhs) st = evalBinExpr varToBool (||) VBool lhs rhs st
-evalExpr (ELand _ lhs rhs) st = evalBinExpr varToBool (&&) VBool lhs rhs st
-evalExpr (EXor _ lhs rhs) st = evalBinExpr varToBool xor VBool lhs rhs st
+evalExpr (ELor _ lhs rhs) st = evalBinExpr varToBool (||) VBool lhs rhs Nothing st
+evalExpr (ELand _ lhs rhs) st = evalBinExpr varToBool (&&) VBool lhs rhs Nothing st
+evalExpr (EXor _ lhs rhs) st = evalBinExpr varToBool xor VBool lhs rhs Nothing st
 
-evalExpr (ECat _ lhs rhs) st = evalBinExpr varToString (++) VString lhs rhs st
+evalExpr (ECat _ lhs rhs) st = evalBinExpr varToString (++) VString lhs rhs Nothing st
 
 -- Operators '==' and '!=' works with any builtin type and have to be
 -- treated differently for that reason.
@@ -290,38 +289,32 @@ evalExpr expr _ = do -- TODO: This dies!
 -- TODO: this can be regular Error, not errorT
 -- evalVarDeclImpl, evalVarAsgnImpl have same signatures. This is important so
 -- that we can use them interchangably, e.g. in tuples.
-evalVarDeclImpl :: String -> Var -> PPos -> State -> ErrorT IO State
-evalVarDeclImpl vname var _ st = do
-  let (vid, st') = createVar vname var st
-  lift $ putStrLn $ "created variable of varId: " ++ show vid
-  -- lift $ dumpState st' -- TODO!!!
-  return st'
+evalVarDeclImpl :: String -> Var -> PPos -> State -> Error State
+evalVarDeclImpl vname var _ st = return $ snd $ createVar vname var st
 
 -- TODO: this can be regular Error, not errorT
-evalVarAsgnImpl :: String -> Var -> PPos -> State -> ErrorT IO State
+evalVarAsgnImpl :: String -> Var -> PPos -> State -> Error State
 evalVarAsgnImpl vname asgnVal p st = do
   -- (asgnVal, st') <- evalExpr expr st
   -- (vId, var) <- toErrorT $ getVar vname p1 st
-  (vId, var) <- toErrorT $ getVar vname p st
-  toErrorT $ enforceType var (varTypeId asgnVal) p st
-  toErrorT $ setVar vId asgnVal st
+  (vId, var) <- getVar vname p st
+  enforceType var (varTypeId asgnVal) p st
+  setVar vId asgnVal st
 
 evalVarDecl :: VarDecl PPos -> State -> ErrorT IO State
-evalVarDecl (DVDecl p (Ident vname) tp) st = do
+evalVarDecl (DVDecl p (Ident vname) _ tp) st = do
   tId <- toErrorT $ getTypeId tp st
-  evalVarDeclImpl vname (VUninitialized tId) p st
+  toErrorT $ evalVarDeclImpl vname (VUninitialized tId) p st
 
-evalVarDecl (DVDeclAsgn p (Ident vname) tp expr) st = do
+evalVarDecl (DVDeclAsgn p (Ident vname) _ tp expr) st = do
   (v, st') <- evalExpr expr st
   tId <- toErrorT $ getTypeId tp st'
-
-  -- Enforce that given type is same as the type of the RHS expresion.
   toErrorT $ enforceType v tId (getPos expr) st'
-  evalVarDeclImpl vname v p st'
+  toErrorT $ evalVarDeclImpl vname v p st'
 
-evalVarDecl (DVDeclDeduce p (Ident vname) expr) st = do
+evalVarDecl (DVDeclDeduce p (Ident vname) _ expr) st = do
     (v, st') <- evalExpr expr st
-    evalVarDeclImpl vname v p st'
+    toErrorT $ evalVarDeclImpl vname v p st'
 
 evalIfStmtImpl :: Expr PPos -> Stmt PPos -> Maybe (Stmt PPos) -> State -> ErrorT IO State
 evalIfStmtImpl expr stmt elseStmt st = do
@@ -425,11 +418,11 @@ tupleAsgnOrDeclImpl decl targs vs p st = do
             $ tryZip targs vs
 
   let action = if decl then evalVarDeclImpl else evalVarAsgnImpl
-  foldrM (\(tar, v) s ->
-            case tar of
-              IOIIgnore _ -> toErrorT $ Ok s
-              IOIIdent pv (Ident name) -> action name v pv s)
-         st zipped
+  toErrorT $ foldrM (\(tar, v) s ->
+                       case tar of
+                         IOIIgnore _ -> Ok s
+                         IOIIdent pv (Ident name) -> action name v pv s)
+                    st zipped
 
 tupleDeclImpl :: [IdentOrIgnr PPos] -> [Var] -> PPos -> State -> ErrorT IO State
 tupleDeclImpl = tupleAsgnOrDeclImpl True
@@ -521,8 +514,8 @@ evalStmt e@(SFor _ (Ident iterName) eStart eEnd stmt) st = do
   -- Create func taht declares a loop iterator and evaluates loop with given
   -- control statements. Then run the function in a single scope.
   let f s = do
-        s' <- evalVarDeclImpl iterName (VInt vStartConv) (getPos e) s
-        evalLoopImpl cmpExpr stmt (Just incStmt) s'
+        s' <- toErrorT $ evalVarDeclImpl iterName (VInt vStartConv) (getPos e) s
+        catchBreak $ evalLoopImpl cmpExpr stmt (Just incStmt) s'
 
   scope f st''
 

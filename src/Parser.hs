@@ -1,6 +1,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 
--- | This files combines all bnfc + Alex + Happy generated files and provides
+-- This files combines all bnfc + Alex + Happy generated files and provides
 -- minimal interface so that machine generated files don't have to be included
 -- in the main program.
 module Parser where

@@ -1,14 +1,8 @@
-// FAILS: not_in_scope3.prg:12:9: Variable `test' not in scope.
+// FAILS: not_in_scope4.prg:7:10: Variable `i' not in scope.
 
 {
-    // Fails, because was_greater is only present in the if scope, and is used
-    // outside.
-    i := 0;
-    while (i < 3) {
-        test := i; // _Declares_ the variable
-        i = i + 1;
-    }
+    for (i : 0..10)
+        assert: i <= 10;
 
-    if (test > 20) { // Fails: Use of a variable not visible in current scope.
-    }
+    x := i; // Fails, for loop iterator is not visible outside the scope.
 }
