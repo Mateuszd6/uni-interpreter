@@ -151,9 +151,10 @@ fnCallParams (IELDefault _ exprs) st = evalExprsListr exprs st
 -- Value is returned in a tricky way through 'Flow', so it has to be catched.
 evalFunction :: Func -> [Var] -> PPos -> State -> ErrorT IO State
 evalFunction func invokeP p st = do
+  -- TODO: Fun params are never read-only?
   st' <- toErrorT $
     foldrM (\(par, (pname, tId)) s -> enforceType par tId p s >>
-                                      Ok (snd $ createVar pname par s))
+                                      snd <$> createVar pname False par p s)
            st { stateScope = funcScope func } $
            zip invokeP $ funcParams func
 
@@ -280,17 +281,18 @@ evalExpr (EFnCall p (Ident fname) params) st = do
   return (ret, st'')
 
 -- evalExpr _ _ = toErrorT $ Fail $ NotImplemented "This is madness"
-evalExpr expr _ = do -- TODO: This dies!
-  -- lift $ print expr
-  lift $ putStrLn $ "Cant evaluate expr at: " ++ showFCol (getPos expr) ""
-  undefined
+
+vsIsVarReadOnly :: VarSpec a -> Bool
+vsIsVarReadOnly (VSReadOnly _) = True
+vsIsVarReadOnly _ = False
 
 -- TODO: Make sure that a variable can't be declared twice in the same scope.
--- TODO: this can be regular Error, not errorT
--- evalVarDeclImpl, evalVarAsgnImpl have same signatures. This is important so
--- that we can use them interchangably, e.g. in tuples.
-evalVarDeclImpl :: String -> Var -> PPos -> State -> Error State
-evalVarDeclImpl vname var _ st = return $ snd $ createVar vname var st
+-- evalVarDeclImpl, evalVarAsgnImpl have same signatures. TODO: Not
+-- any more? This is important so that we can use them interchangably,
+-- e.g. in tuples.
+evalVarDeclImpl :: VarSpec PPos -> String -> Var -> PPos -> State -> Error State
+evalVarDeclImpl spec vname var p st = snd <$>
+  createVar vname (vsIsVarReadOnly spec) var p st
 
 -- TODO: this can be regular Error, not errorT
 evalVarAsgnImpl :: String -> Var -> PPos -> State -> Error State
@@ -299,22 +301,22 @@ evalVarAsgnImpl vname asgnVal p st = do
   -- (vId, var) <- toErrorT $ getVar vname p1 st
   (vId, var) <- getVar vname p st
   enforceType var (varTypeId asgnVal) p st
-  setVar vId asgnVal st
+  setVar vId asgnVal p st
 
 evalVarDecl :: VarDecl PPos -> State -> ErrorT IO State
-evalVarDecl (DVDecl p (Ident vname) _ tp) st = do
+evalVarDecl (DVDecl p (Ident vname) spec tp) st = do
   tId <- toErrorT $ getTypeId tp st
-  toErrorT $ evalVarDeclImpl vname (VUninitialized tId) p st
+  toErrorT $ evalVarDeclImpl spec vname (VUninitialized tId) p st
 
-evalVarDecl (DVDeclAsgn p (Ident vname) _ tp expr) st = do
+evalVarDecl (DVDeclAsgn p (Ident vname) spec tp expr) st = do
   (v, st') <- evalExpr expr st
   tId <- toErrorT $ getTypeId tp st'
   toErrorT $ enforceType v tId (getPos expr) st'
-  toErrorT $ evalVarDeclImpl vname v p st'
+  toErrorT $ evalVarDeclImpl spec vname v p st'
 
-evalVarDecl (DVDeclDeduce p (Ident vname) _ expr) st = do
+evalVarDecl (DVDeclDeduce p (Ident vname) spec expr) st = do
     (v, st') <- evalExpr expr st
-    toErrorT $ evalVarDeclImpl vname v p st'
+    toErrorT $ evalVarDeclImpl spec vname v p st'
 
 evalIfStmtImpl :: Expr PPos -> Stmt PPos -> Maybe (Stmt PPos) -> State -> ErrorT IO State
 evalIfStmtImpl expr stmt elseStmt st = do
@@ -417,7 +419,7 @@ tupleAsgnOrDeclImpl decl targs vs p st = do
             $ errorFromMaybe (EDTupleNumbersDontMatch p (length targs) (length vs))
             $ tryZip targs vs
 
-  let action = if decl then evalVarDeclImpl else evalVarAsgnImpl
+  let action = if decl then evalVarDeclImpl (VSNone Nothing) else evalVarAsgnImpl -- TODO?
   toErrorT $ foldrM (\(tar, v) s ->
                        case tar of
                          IOIIgnore _ -> Ok s
@@ -514,7 +516,7 @@ evalStmt e@(SFor _ (Ident iterName) eStart eEnd stmt) st = do
   -- Create func taht declares a loop iterator and evaluates loop with given
   -- control statements. Then run the function in a single scope.
   let f s = do
-        s' <- toErrorT $ evalVarDeclImpl iterName (VInt vStartConv) (getPos e) s
+        s' <- toErrorT $ evalVarDeclImpl (VSNone Nothing) iterName (VInt vStartConv) (getPos e) s
         catchBreak $ evalLoopImpl cmpExpr stmt (Just incStmt) s'
 
   scope f st''
@@ -530,7 +532,7 @@ evalStmt (SFDecl p (Ident fname) (FDDefault _ params bd funRet stmts)) st = do
   retT <- toErrorT $ parseRetType funRet st
   fParams <- toErrorT $ funcToParams params st
   let body = SBlock p bd stmts
-  return $ snd $ createFunc fname body fParams retT st
+  toErrorT $ snd <$> createFunc fname body fParams retT p st
 
 evalStmt (SSDecl _ (Ident sname) (SDDefault _ members)) st =
   toErrorT (snd . flip (createStruct sname) st <$> getStructMemebers members st)
@@ -569,11 +571,11 @@ evalStmt (SAssign p lv expr) st = do
   toErrorT $ case membs of
     [] -> do -- Assign single variable.
       enforceType var (varTypeId asgnVal) p st'
-      setVar vId asgnVal st'
+      setVar vId asgnVal p st'
     _ -> do -- Assign field of a struct.
       (tId, struct) <- asStruct (getPos lv) var
       newStruct <- assgnStructField (tId, struct) membs asgnVal p st'
-      setVar vId (VStruct tId newStruct) st'
+      setVar vId (VStruct tId newStruct) p st'
 
 evalStmt (SReturn p (RExNone _)) st = toErrorT $ Flow (FRReturn p VEmpty) st
 evalStmt (SReturn p (RExRegular _ (EOTRegular _ expr))) st = do
