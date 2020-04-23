@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+
 module Main where -- TODO: This line is only to kill unused func warnings.
 
 -- TODO: Void variable can be the RHS on the deduced type.
@@ -7,6 +9,7 @@ module Main where -- TODO: This line is only to kill unused func warnings.
 -- TODO: Qualify imports
 import Data.Bits (xor)
 import qualified Data.Map.Strict as Map -- TODO: Explain why strict instead of lazy.
+import qualified Data.Set as Set
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import Control.Monad -- TODO: qualify
@@ -149,13 +152,17 @@ fnCallParams (IELEmpty _) st = toErrorT $ Ok ([], st)
 fnCallParams (IELDefault _ exprs) st = evalExprsListr exprs st
 
 -- Value is returned in a tricky way through 'Flow', so it has to be catched.
+-- TODO(BIND): Here should be a bind.
 evalFunction :: Func -> [Var] -> PPos -> State -> ErrorT IO State
 evalFunction func invokeP p st = do
   -- TODO: Fun params are never read-only?
   st' <- toErrorT $
     foldrM (\(par, (pname, tId)) s -> enforceType par tId p s >>
                                       snd <$> createVar pname False par p s)
-           st { scopeCnt = scopeCnt st + 1, stateScope = funcScope func } $
+           st { scopeCnt = scopeCnt st + 1,
+                stateScope = funcScope func
+                -- TODO(BIND): Check bind here.
+              } $
            zip invokeP $ funcParams func
 
   evalStmt (funcBody func) st'
@@ -178,15 +185,29 @@ getStructField (tId, struct) (n:ns) p st = do
 
 getStructField _ [] _ _ = undefined -- TODO: Should not happen.
 
+-- TODO(CLEANUP): Try to remove these two:
+appendMaybe :: Maybe [a] -> a -> Maybe [a]
+appendMaybe Nothing _ = Nothing
+appendMaybe (Just xs) x = Just (x:xs)
+
+fromListMaybe :: Ord a => Maybe [a] -> Maybe (Set.Set a)
+fromListMaybe (Just l) = Just $ Set.fromList l
+fromListMaybe Nothing = Nothing
+
+getBindVars :: Bind PPos -> State -> Error (Maybe (Set.Set VarId))
+getBindVars (BdPure _) _ = Ok $ Just $ Set.fromList []
+getBindVars (BdPureAlt _) _ = Ok $ Just $ Set.fromList[]
+getBindVars (BdNone _) _ = Ok Nothing
+getBindVars (BdDefault p idents) st = fromListMaybe <$>
+  foldM (\acc name -> appendMaybe acc . fst <$> getVar name p st)
+        (Just [])
+        (map (\(Ident str) -> str) idents)
+
 checkDivByZero :: Int -> Int -> PPos -> Error ()
 checkDivByZero _ 0 p = Fail $ EDDivideByZero p
 checkDivByZero _ _ _ = Ok ()
 
 evalExpr :: Expr PPos -> State -> ErrorT IO (Var, State)
-  -- TODO: Left:
-  -- EFnCall a Ident (InvokeExprList a)
-  -- EIife a (FunDecl a) (InvokeExprList a)
-  -- ELValue a (LValue a)
 
 evalExpr (EInt _ intVal) st = do
   let res = VInt $ fromInteger intVal
@@ -278,22 +299,16 @@ evalExpr (EFnCall p (Ident fname) params) st = do
                                        else catchReturnVoid
       returnHndl = returnHndlImpl p . dontAllowBreakContinue
 
-  scope2 (returnHndl . evalFunction func invokeParams p) st'
+  scope2 (returnHndl . evalFunction func invokeParams p) Nothing st' -- TODO: Get bind from func def.
 
-evalExpr (EIife p (FDDefault _ params bd funRet stmts) invkParams) st = do
-  lift $ putStrLn $ "Calling IIFe at: " ++ show p
-  -- evalFunDeclImpl :: FunDecl PPos -> PPos -> State -> State
-  -- evalFunDeclImpl (FDDefault _ params bd funRet stmts) p st = undefined
-  --
-  -- let func = Func next body retT fparams $ stateScope st
-  --
+evalExpr (EIife p (FDDefault _ params bind funRet stmts) invkParams) st = do
   -- TODO: A lot of this is copypasted.
   retT <- toErrorT $ parseRetType funRet st
   fParams <- toErrorT $ funcToParams params st
   (invokeParams, st') <- fnCallParams invkParams st
 
-  let body = SBlock p bd stmts
-      func = Func (-1) body retT fParams (stateScope st') (scopeCnt st')
+  let body = SBlock p (BdNone Nothing) stmts
+      func = Func (-1) body retT fParams Nothing (stateScope st') (scopeCnt st')
       returnsValue = not $ funcReturnsVoid $ funcRetT func
       returnHndlImpl = if returnsValue then expectReturnValue $ funcRetT func
                                        else catchReturnVoid
@@ -302,13 +317,13 @@ evalExpr (EIife p (FDDefault _ params bd funRet stmts) invkParams) st = do
   toErrorT $ enforce (length invokeParams == length (funcParams func))
     $ EDInvalidNumParams p (length $ funcParams func) (length invokeParams)
 
-  scope2 (returnHndl . evalFunction func invokeParams p) st'
+  bindV <- toErrorT $ getBindVars bind st'
+  scope2 (returnHndl . evalFunction func invokeParams p) bindV st'
 
 vsIsVarReadOnly :: VarSpec a -> Bool
 vsIsVarReadOnly (VSReadOnly _) = True
 vsIsVarReadOnly _ = False
 
--- TODO: Make sure that a variable can't be declared twice in the same scope.
 -- evalVarDeclImpl, evalVarAsgnImpl have same signatures. TODO: Not
 -- any more? This is important so that we can use them interchangably,
 -- e.g. in tuples.
@@ -358,7 +373,7 @@ evalLoopImpl expr stmt incStmt st = do
   lift $ putStrLn $ "evaluated loop condition: " ++ show cond
   if cond
     then do
-      st'' <- scope (catchContinue . evalStmt stmt) st'
+      st'' <- scope (catchContinue . evalStmt stmt) Nothing st'
       st''' <- case incStmt of -- If incStmt is specified evaluate it.
                  Nothing -> return st''
                  Just increm -> evalStmt increm st''
@@ -494,7 +509,9 @@ assgnStructField _ [] _ _ _ = undefined -- TODO: Should not happen.
 
 evalStmt :: Stmt PPos -> State -> ErrorT IO State
 
-evalStmt (SBlock _ _ stmts) st = scope (flip (foldM (flip evalStmt)) stmts) st
+evalStmt (SBlock _ bind stmts) st = do
+  bindV <- toErrorT $ getBindVars bind st
+  scope (flip (foldM (flip evalStmt)) stmts) bindV st
 
 evalStmt (SAssert p expr) st = do
   (var, st') <- evalExpr expr st
@@ -510,11 +527,11 @@ evalStmt (SPrint _ exprs) st =
     foldM (\s ex -> evalExpr ex s >>= lift . printFstRetSnd) st exprs
 
 
-evalStmt (SIf _ expr stmt) st = scope (evalIfStmtImpl expr stmt Nothing) st
-evalStmt (SIfElse _ expr stmt elStmt) st = scope (evalIfStmtImpl expr stmt (Just elStmt)) st
+evalStmt (SIf _ expr stmt) st = scope (evalIfStmtImpl expr stmt Nothing) Nothing st
+evalStmt (SIfElse _ expr stmt elStmt) st = scope (evalIfStmtImpl expr stmt (Just elStmt)) Nothing st
 
 -- TODO: Should this be scoped?
-evalStmt (SWhile _ expr stmt) st = scope (catchBreak . evalLoopImpl expr stmt Nothing) st
+evalStmt (SWhile _ expr stmt) st = scope (catchBreak . evalLoopImpl expr stmt Nothing) Nothing st
 
 evalStmt e@(SFor _ (Ident iterName) eStart eEnd stmt) st = do
   (vStart, st') <- evalExpr eStart st
@@ -541,7 +558,7 @@ evalStmt e@(SFor _ (Ident iterName) eStart eEnd stmt) st = do
         s' <- toErrorT $ evalVarDeclImpl (VSNone Nothing) iterName (VInt vStartConv) (getPos e) s
         catchBreak $ evalLoopImpl cmpExpr stmt (Just incStmt) s'
 
-  scope f st''
+  scope f Nothing st''
 
 -- Discard expression result and return new state.
 evalStmt (SExpr _ expr) st = snd <$> evalExpr expr st
@@ -550,11 +567,11 @@ evalStmt (SVDecl _ vdecl) st = evalVarDecl vdecl st
 
 evalStmt (SFDecl p (Ident fname) (FDDefault _ params bd funRet stmts)) st = do
   lift $ putStrLn $ "Declaring function named `" ++ fname ++ "'."
-  -- TODO: Using Sblock is dangerous because bind may eliminate function arguments.
   retT <- toErrorT $ parseRetType funRet st
   fParams <- toErrorT $ funcToParams params st
-  let body = SBlock p bd stmts
-  toErrorT $ snd <$> createFunc fname body fParams retT p st
+  bindV <- toErrorT $ getBindVars bd st
+  let body = SBlock p (BdNone Nothing) stmts
+  toErrorT $ snd <$> createFunc fname body fParams retT bindV p st
 
 evalStmt (SSDecl p (Ident sname) (SDDefault _ members)) st = do
   strMembs <- toErrorT $ getStructMemebers members st

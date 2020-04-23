@@ -2,6 +2,7 @@ module State where -- TODO: rename to runtime?
 
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
 import qualified Data.Map.Strict as Map -- TODO: Explain why strict instead of lazy.
+import qualified Data.Set as Set
 import Data.List (find, sort)
 
 import AbsLanguage
@@ -55,6 +56,7 @@ data Func = Func
     funcBody :: Stmt PPos,
     funcRetT :: FRetT,
     funcParams :: [Param],
+    funcBind :: Maybe (Set.Set VarId),
     funcScope :: Scope,
     fScopeN :: Int
   }
@@ -90,7 +92,8 @@ data State = State
   {
     scopeCnt :: Int,
     stateStore :: Store,
-    stateScope :: Scope
+    stateScope :: Scope,
+    bindVars :: [(Int, Set.Set VarId)]
   }
   deriving (Show)
 
@@ -101,12 +104,13 @@ tempDefaultStore :: Store
 tempDefaultStore = Store Map.empty Map.empty Map.empty 1 1 5 -- TODO: Make sure id don't bind reserved onces.
 
 tempDefaultState :: State
-tempDefaultState = State 0 tempDefaultStore tempDefaultScope
+tempDefaultState = State 0 tempDefaultStore tempDefaultScope [(-1, Set.fromList [])]
 
 -- TODO: Move to dumping
 dumpState :: State -> IO ()
 dumpState s = do
   putStrLn "Dumping state:"
+  putStrLn $ "Currect scope:" ++ show (scopeCnt s)
   putStrLn "  Store:"
   putStrLn "    Vars:"
   putMap $ storeVars $ stateStore s
@@ -123,11 +127,20 @@ dumpState s = do
   putMap $ scopeFuncs $ stateScope s
   putStrLn "    Types:"
   putMap $ scopeTypes $ stateScope s
+  putStrLn "BIND:"
+  putListOfSets
   where
     putMap :: (Show a, Show b) => Map.Map a b -> IO ()
     putMap =
       mapM_ (putStrLn . (\(x, y) -> "      " ++ show x ++ " -> " ++ show y))
       . Map.toList
+    putListOfSets =
+      mapM_ ((\(x, y) -> putStr ("      " ++ show x ++ " ->") >> putSet y >> putStrLn "")) $ bindVars s
+    putSet :: (Show a) => Set.Set a -> IO ()
+    putSet =
+      mapM_ (putStr . (\x -> " " ++ show x))
+      . Set.toList
+
 
 -- Check if var/func/type is aready defined for the scope.
 checkIfAlreadyDefined :: String -> -- Name
@@ -162,7 +175,7 @@ checkIfParamRepeated params ed =
 
 -- Create new variable and add it to the state.
 createVar :: String -> Bool -> Var -> PPos -> State -> Error (VarId, State)
-createVar name rdOnly v p s@(State c str@(Store vars _ _ next _ _) scp@(Scope vnames _ _)) =
+createVar name rdOnly v p s@(State c str@(Store vars _ _ next _ _) scp@(Scope vnames _ _) _) =
   let varInfo = VarInfo (scopeCnt s) rdOnly
   in do
     checkIfAlreadyDefined name (viScopeN . snd) vnames vars c (EDVarAlreadyDeclared p)
@@ -171,10 +184,10 @@ createVar name rdOnly v p s@(State c str@(Store vars _ _ next _ _) scp@(Scope vn
                                  nextVarId = next + 1 },
                stateScope = scp{ scopeVars = Map.insert name next vnames } })
 
-createFunc :: String -> Stmt PPos -> [Param] -> FRetT -> PPos -> State -> Error (FunId, State)
-createFunc name body params ret p s@(State c str@(Store _ funcs _  _ next _) scp@(Scope _ fnames _)) =
+createFunc :: String -> Stmt PPos -> [Param] -> FRetT -> Maybe (Set.Set VarId) -> PPos -> State -> Error (FunId, State)
+createFunc name body params ret bind p s@(State c str@(Store _ funcs _  _ next _) scp@(Scope _ fnames _) _) =
   let scp' = scp{ scopeFuncs = Map.insert name next fnames } -- Allow recursion
-      func = Func next body ret params scp' c
+      func = Func next body ret params bind scp' c
   in do
     checkIfAlreadyDefined name fScopeN fnames funcs c (EDFuncAlreadyDeclared p)
     checkIfParamRepeated (map fst params) (flip EDFuncArgRepeated p)
@@ -184,7 +197,7 @@ createFunc name body params ret p s@(State c str@(Store _ funcs _  _ next _) scp
                stateScope = scp' })
 
 createStruct :: String -> PPos -> [(String, TypeId)] -> State -> Error (TypeId, State)
-createStruct name p fields s@(State _ str@(Store _ _ types _ _ next) scp@(Scope _ _ tnames)) = do
+createStruct name p fields s@(State _ str@(Store _ _ types _ _ next) scp@(Scope _ _ tnames) _) = do
   checkIfParamRepeated (map fst fields) (flip EDStructArgRepeated p)
   return (next, s{
       stateStore = str{ storeTypes = Map.insert next (Strct name $ Map.fromList fields) types,
@@ -193,41 +206,50 @@ createStruct name p fields s@(State _ str@(Store _ _ types _ _ next) scp@(Scope 
 
 -- TODO: Rename
 getVar_ :: VarId -> State -> Maybe (Var, VarInfo)
-getVar_ vId (State _ store _) =
+getVar_ vId (State _ store _ _) =
+  -- TODO BIND: This also has to have a var checked.
   Map.lookup vId $ storeVars store
+
+checkBind :: VarId -> Int -> String -> PPos -> State -> Error ()
+checkBind vId scopeN n p st@(State _ _ _ ((i, set):_))
+  | scopeN >= i = Ok () -- TODO: make sure it is >= not > ! -- Variable declared insinde last bind block.
+  | Set.member vId set == True = Ok () -- Variable binded in the curr bind scope.
+  | otherwise = Fail $ EDBind n p
 
 -- Get variable by name
 getVar :: String -> PPos -> State -> Error (VarId, Var)
-getVar vname p (State _ str scp) =
-  errorFromMaybe (EDVarNotFound vname p) $ do
-  vId <- Map.lookup vname $ scopeVars scp -- Scope lookup.
-  var <- fst <$> Map.lookup vId (storeVars str) -- Store lookup, should not fail.
+getVar vname p st@(State _ str scp _) = do
+  (vId, var, vinfo) <- errorFromMaybe (EDVarNotFound vname p) $
+    do
+      vId <- Map.lookup vname $ scopeVars scp -- Scope lookup.
+      (var, vinfo) <- Map.lookup vId (storeVars str) -- Store lookup, should not fail.
+      return (vId, var, vinfo)
+
+  checkBind vId (viScopeN vinfo) vname p st
   return (vId, var)
 
 getFunc :: String -> PPos -> State -> Error (FunId, Func)
-getFunc fname p (State _ str scp) =
-  errorFromMaybe (EDFuncNotFound fname p) $ do
-  fId <- Map.lookup fname $ scopeFuncs scp -- Scope lookup.
-  func <- Map.lookup fId $ storeFuncs str -- Store lookup, should not fail.
-  return (fId, func)
+getFunc fname p (State _ str scp _) =
+  errorFromMaybe (EDFuncNotFound fname p) $
+  do
+    fId <- Map.lookup fname $ scopeFuncs scp -- Scope lookup.
+    func <- Map.lookup fId $ storeFuncs str -- Store lookup, should not fail.
+    return (fId, func)
 
 -- TODO: Provide for empty and uninitialized and tuple or don't use it.
 getTypeStruct :: String -> PPos -> State -> Error (TypeId, Strct)
 getTypeStruct name p st =
-  errorFromMaybe (EDTypeNotFound name p) $ do
-  tId <- Map.lookup name $ scopeTypes $ stateScope st -- Scope lookup.
-  strct <- Map.lookup tId $ storeTypes $ stateStore st -- Store lookup, should not fail.
-  return (tId, strct)
+  errorFromMaybe (EDTypeNotFound name p) $
+  do
+    tId <- Map.lookup name $ scopeTypes $ stateScope st -- Scope lookup.
+    strct <- Map.lookup tId $ storeTypes $ stateStore st -- Store lookup, should not fail.
+    return (tId, strct)
 
 -- TODO: I guess this should never happen, because to set a variable
 --       we have to get it first. Also PPos?
 -- This function does not perform the type check!!
 setVar :: VarId -> Var -> PPos -> State -> Error State
-setVar vId val p s@(State _ str _) = do
-
-  -- Check if var exists, and if it does, make sure it is not read
-  -- only. Either create a new varinfo or use the existing one.
-
+setVar vId val p s@(State _ str _ _) = do
   -- TODO: Dont return info from if stmt, instead use another stmt in
   -- do to test if read only.
   info <- case getVar_ vId s of
@@ -242,9 +264,9 @@ getTypeId :: Type PPos -> State -> Error TypeId
 getTypeId (TInt _) _ = Ok 1
 getTypeId (TBool _) _ = Ok 2
 getTypeId (TString _) _ = Ok 3
-getTypeId (TUser p (Ident tname)) (State _ _ scp) =
-  errorFromMaybe (EDTypeNotFound tname p)
-  $ Map.lookup tname $ scopeTypes scp
+getTypeId (TUser p (Ident tname)) (State _ _ scp _) =
+  errorFromMaybe (EDTypeNotFound tname p) $
+  Map.lookup tname $ scopeTypes scp
 
 getTypeDescr :: TypeId -> PPos -> State -> Error Strct
 getTypeDescr tId p st = errorFromMaybe (EDVariableNotStruct p) $
@@ -253,7 +275,7 @@ getTypeDescr tId p st = errorFromMaybe (EDVariableNotStruct p) $
 -- This is reverse map lookup, which is slow, but is done only once, when
 -- reporting the type error, in case when program is exploding anyway.
 getTypeNameForED :: TypeId -> State -> String
-getTypeNameForED tId (State _ _ scp)
+getTypeNameForED tId (State _ _ scp _)
   | tId == 0 = "void"
   | tId == 1 = "int"
   | tId == 2 = "bool"
@@ -273,17 +295,33 @@ varTypeId (VString _) = 3
 varTypeId (VTuple _) = 4 -- TODO: Describe the trick
 varTypeId (VStruct sId _) = sId -- TODO: Structs know their typeids??
 
-scope :: (State -> ErrorT IO State) -> State -> ErrorT IO State
-scope fun st = do
-  st' <- fun st { scopeCnt = scopeCnt st + 1 }
-  return st'{ stateScope = stateScope st }
+scope :: (State -> ErrorT IO State) -> Maybe (Set.Set VarId) -> State -> ErrorT IO State
+scope fun bind st =
+  let newBind = case bind of
+                  Nothing -> bindVars st
+                  Just set -> (scopeCnt st + 1, set) : bindVars st
+  in do
+    lift $ putStrLn $ "Starting a new scope: " ++ (show $ scopeCnt st + 1)
+    -- lift $ dumpState $ st { scopeCnt = scopeCnt st + 1, bindVars = newBind}
+
+    st' <- fun st { scopeCnt = scopeCnt st + 1, bindVars = newBind}
+
+    lift $ putStrLn $ "Closing a scope: " ++ (show $ scopeCnt st + 1)
+    return st'{ scopeCnt = scopeCnt st, stateScope = stateScope st, bindVars = bindVars st }
+    -- Rollbacks scope and bind vars after leaving the scope.
 
 -- Handy when evaluating two things in a scoped block, like evaluating a
 -- function with return value.
-scope2 :: (State -> ErrorT IO (a, State)) -> State -> ErrorT IO (a, State)
-scope2 fun st = do
-  (x, st') <- fun st
-  return (x, st'{ stateScope = stateScope st })
+scope2 :: (State -> ErrorT IO (a, State)) -> Maybe (Set.Set VarId) -> State -> ErrorT IO (a, State)
+scope2 fun bind st =
+  let newBind = case bind of
+                  Nothing -> bindVars st
+                  Just set -> (scopeCnt st + 1, set) : bindVars st
+  in do
+    (x, st') <- fun st { scopeCnt = scopeCnt st + 1, bindVars = newBind}
+    return (x, st'{ scopeCnt = scopeCnt st, stateScope = stateScope st, bindVars = bindVars st })
+  -- (x, st') <- fun st { scopeCnt = scopeCnt st + 1 }
+  -- return (x, st'{ stateScope = stateScope st })
 
 -- TODO: read this and decide if it stays.
 -- Generalized Error Monad (including Monad Transform) to combine error
@@ -323,6 +361,7 @@ data ErrorDetail
   | EDTypeAlreadyDeclared PPos
   | EDFuncArgRepeated String PPos
   | EDStructArgRepeated String PPos
+  | EDBind String PPos
   deriving (Show)
 
 showFCol :: PPos -> String -> String
@@ -371,6 +410,7 @@ errorMsg fname (EDFuncAlreadyDeclared p) = showFCol p fname ++ "Function is alre
 errorMsg fname (EDTypeAlreadyDeclared p) = showFCol p fname ++ "Struct is already declared in the current scope."
 errorMsg fname (EDFuncArgRepeated name p) = showFCol p fname ++ "Function argument named `" ++ name ++ "' is repeated more than once."
 errorMsg fname (EDStructArgRepeated name p) = showFCol p fname ++ "Struct member named `" ++ name ++ "' is repeated more than once."
+errorMsg fname (EDBind n p) = showFCol p fname ++ "Variable `" ++ n ++ "' is used, but not binded."
 
 data FlowReason
   = FRBreak PPos

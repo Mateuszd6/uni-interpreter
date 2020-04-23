@@ -20,9 +20,6 @@ export PKGNAME := mateusz_dudzinski
 all: interpreter
 
 language:
-	@# Just rebuild everything - this has to be called manyally with
-	@# 'make language' and probably will cause a buld break, because you need
-	@# super special version of bnfc to generate a line numbers.
 	$(BNFC) --functor --haskell Language.cf
 	$(ALEX) --ghc LexLanguage.x
 	$(HAPPY) --ghc --coerce --array ParLanguage.y
@@ -32,7 +29,7 @@ language:
 	-mv -f AbsLanguage.hs ErrM.hs LexLanguage.hs ParLanguage.hs ./src
 
 interpreter: src/Main.hs
-	$(GHC) -Wall --make -XTupleSections -isrc src/Main.hs -odir obj -hidir obj -o $@
+	$(GHC) -Wall --make -isrc src/Main.hs -odir obj -hidir obj -o $@
 
 test:
 	./interpreter < ./tests.txt
