@@ -1,4 +1,4 @@
-// FAILS: function_args_repeated_name.prg:7:1: Function argument name `x' is repeated more than once.
+// FAILS: function_args_repeated_name.prg:7:1: Function argument named `x' is repeated more than once.
 
 // Two args named the same are not allowed and we deliberately catch
 // this error on function declaration, because we don't want this to

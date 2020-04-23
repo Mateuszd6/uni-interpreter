@@ -155,7 +155,7 @@ evalFunction func invokeP p st = do
   st' <- toErrorT $
     foldrM (\(par, (pname, tId)) s -> enforceType par tId p s >>
                                       snd <$> createVar pname False par p s)
-           st { stateScope = funcScope func } $
+           st { scopeCnt = scopeCnt st + 1, stateScope = funcScope func } $
            zip invokeP $ funcParams func
 
   evalStmt (funcBody func) st'
@@ -272,15 +272,37 @@ evalExpr (EFnCall p (Ident fname) params) st = do
   toErrorT $ enforce (length invokeParams == length (funcParams func))
     $ EDInvalidNumParams p (length $ funcParams func) (length invokeParams)
 
+  -- TODO: __ Copied somewhere else  __
   let returnsValue = not $ funcReturnsVoid $ funcRetT func
       returnHndlImpl = if returnsValue then expectReturnValue $ funcRetT func
                                        else catchReturnVoid
       returnHndl = returnHndlImpl p . dontAllowBreakContinue
 
-  (ret, st'') <- scope2 (returnHndl . evalFunction func invokeParams p) st'
-  return (ret, st'')
+  scope2 (returnHndl . evalFunction func invokeParams p) st'
 
--- evalExpr _ _ = toErrorT $ Fail $ NotImplemented "This is madness"
+evalExpr (EIife p (FDDefault _ params bd funRet stmts) invkParams) st = do
+  lift $ putStrLn $ "Calling IIFe at: " ++ show p
+  -- evalFunDeclImpl :: FunDecl PPos -> PPos -> State -> State
+  -- evalFunDeclImpl (FDDefault _ params bd funRet stmts) p st = undefined
+  --
+  -- let func = Func next body retT fparams $ stateScope st
+  --
+  -- TODO: A lot of this is copypasted.
+  retT <- toErrorT $ parseRetType funRet st
+  fParams <- toErrorT $ funcToParams params st
+  (invokeParams, st') <- fnCallParams invkParams st
+
+  let body = SBlock p bd stmts
+      func = Func (-1) body retT fParams (stateScope st') (scopeCnt st')
+      returnsValue = not $ funcReturnsVoid $ funcRetT func
+      returnHndlImpl = if returnsValue then expectReturnValue $ funcRetT func
+                                       else catchReturnVoid
+      returnHndl = returnHndlImpl p . dontAllowBreakContinue
+
+  toErrorT $ enforce (length invokeParams == length (funcParams func))
+    $ EDInvalidNumParams p (length $ funcParams func) (length invokeParams)
+
+  scope2 (returnHndl . evalFunction func invokeParams p) st'
 
 vsIsVarReadOnly :: VarSpec a -> Bool
 vsIsVarReadOnly (VSReadOnly _) = True
@@ -534,8 +556,9 @@ evalStmt (SFDecl p (Ident fname) (FDDefault _ params bd funRet stmts)) st = do
   let body = SBlock p bd stmts
   toErrorT $ snd <$> createFunc fname body fParams retT p st
 
-evalStmt (SSDecl _ (Ident sname) (SDDefault _ members)) st =
-  toErrorT (snd . flip (createStruct sname) st <$> getStructMemebers members st)
+evalStmt (SSDecl p (Ident sname) (SDDefault _ members)) st = do
+  strMembs <- toErrorT $ getStructMemebers members st
+  toErrorT $ snd <$> createStruct sname p strMembs st
 
 evalStmt (STDecl p (TTar _ targs) (EOTTuple _ exprs)) st = do
   (vs, st') <- evalExprsListr exprs st

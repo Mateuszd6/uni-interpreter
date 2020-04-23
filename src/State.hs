@@ -3,7 +3,6 @@ module State where -- TODO: rename to runtime?
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
 import qualified Data.Map.Strict as Map -- TODO: Explain why strict instead of lazy.
 import Data.List (find, sort)
-import Data.Maybe
 
 import AbsLanguage
 
@@ -50,11 +49,15 @@ data FRetT
   | FRetTTuple [TypeId]
   deriving (Show)
 
-data Func = Func { funcId :: FunId,
-                   funcBody :: Stmt PPos,
-                   funcRetT :: FRetT,
-                   funcParams :: [Param],
-                   funcScope :: Scope }
+data Func = Func
+  {
+    funcId :: FunId,
+    funcBody :: Stmt PPos,
+    funcRetT :: FRetT,
+    funcParams :: [Param],
+    funcScope :: Scope,
+    fScopeN :: Int
+  }
   deriving (Show)
 
 -- TODO: User can return a struct from a scope which defines it!!!!
@@ -126,47 +129,64 @@ dumpState s = do
       mapM_ (putStrLn . (\(x, y) -> "      " ++ show x ++ " -> " ++ show y))
       . Map.toList
 
--- Create new variable and add it to the state.
-createVar :: String -> Bool -> Var -> PPos -> State -> Error (VarId, State)
-createVar name rdOnly v p s@(State _ str@(Store vars _ _ next _ _) scp@(Scope vnames _ _)) =
-  let varInfo = VarInfo (scopeCnt s) rdOnly
-      alreadyDefinedInScope = fromMaybe False $ do
-        vId <- Map.lookup name vnames
-        vScopeN <- viScopeN . snd <$> Map.lookup vId vars
-        return $ vScopeN == scopeCnt s
-  in
-    if alreadyDefinedInScope
-      then Fail $ EDVarAlreadyDeclared p
-      else Ok (next, s{
-               stateStore = str{ storeVars = Map.insert next (v, varInfo) vars,
-                                 nextVarId = next + 1 },
-               stateScope = scp{ scopeVars = Map.insert name next vnames } })
+-- Check if var/func/type is aready defined for the scope.
+checkIfAlreadyDefined :: String -> -- Name
+                         (a -> Int) -> -- Get scope num from a
+                         Map.Map String Int -> -- Scope
+                         Map.Map Int a -> -- Store
+                         Int -> -- Curr scope count.
+                         ErrorDetail -> -- Error detailed returned on error.
+                         Error ()
+checkIfAlreadyDefined name scopeN sscope sstore scCnt ed =
+  let b = do
+        eId <- Map.lookup name sscope
+        eScn <- scopeN <$> Map.lookup eId sstore
+        return $ eScn == scCnt
+  in case b of
+       Just True -> Fail ed
+       _ -> return ()
 
-isParamRepeated :: [Param] -> Maybe String
-isParamRepeated =
+-- Can be used to check func params or struct fields, it just requires an
+-- function that can build an error objct from the name of a repeated thing.
+checkIfParamRepeated :: [String] -> (String -> ErrorDetail) -> Error ()
+checkIfParamRepeated params ed =
   let isParamRepeatedImpl :: [String] -> Maybe String
       isParamRepeatedImpl [] = Nothing
       isParamRepeatedImpl [_] = Nothing
       isParamRepeatedImpl (x:y:xys)
           | x == y = Just x
           | otherwise = isParamRepeatedImpl xys
-  in
-    isParamRepeatedImpl . sort . map fst
+  in case isParamRepeatedImpl $ sort params of
+       Just rep -> Fail $ ed rep
+       _ -> return ()
+
+-- Create new variable and add it to the state.
+createVar :: String -> Bool -> Var -> PPos -> State -> Error (VarId, State)
+createVar name rdOnly v p s@(State c str@(Store vars _ _ next _ _) scp@(Scope vnames _ _)) =
+  let varInfo = VarInfo (scopeCnt s) rdOnly
+  in do
+    checkIfAlreadyDefined name (viScopeN . snd) vnames vars c (EDVarAlreadyDeclared p)
+    return (next, s{
+               stateStore = str{ storeVars = Map.insert next (v, varInfo) vars,
+                                 nextVarId = next + 1 },
+               stateScope = scp{ scopeVars = Map.insert name next vnames } })
 
 createFunc :: String -> Stmt PPos -> [Param] -> FRetT -> PPos -> State -> Error (FunId, State)
-createFunc name body params ret p s@(State _ str@(Store _ funcs _  _ next _) scp@(Scope _ fnames _)) =
+createFunc name body params ret p s@(State c str@(Store _ funcs _  _ next _) scp@(Scope _ fnames _)) =
   let scp' = scp{ scopeFuncs = Map.insert name next fnames } -- Allow recursion
-  in
-    case isParamRepeated params of
-      Just n -> Fail $ EDFuncArgRepeated n p
-      Nothing -> Ok $ (next, s{
-                     stateStore = str{ storeFuncs = Map.insert next (Func next body ret params scp') funcs,
-                                       nextFuncId = next + 1 },
-                     stateScope = scp' })
+      func = Func next body ret params scp' c
+  in do
+    checkIfAlreadyDefined name fScopeN fnames funcs c (EDFuncAlreadyDeclared p)
+    checkIfParamRepeated (map fst params) (flip EDFuncArgRepeated p)
+    return (next, s{
+               stateStore = str{ storeFuncs = Map.insert next func funcs,
+                                 nextFuncId = next + 1 },
+               stateScope = scp' })
 
-createStruct :: String -> [(String, TypeId)] -> State -> (TypeId, State)
-createStruct name fields s@(State _ str@(Store _ _ types _ _ next) scp@(Scope _ _ tnames)) =
-  (next, s{
+createStruct :: String -> PPos -> [(String, TypeId)] -> State -> Error (TypeId, State)
+createStruct name p fields s@(State _ str@(Store _ _ types _ _ next) scp@(Scope _ _ tnames)) = do
+  checkIfParamRepeated (map fst fields) (flip EDStructArgRepeated p)
+  return (next, s{
       stateStore = str{ storeTypes = Map.insert next (Strct name $ Map.fromList fields) types,
                         nextTypeId = next + 1 },
       stateScope = scp{ scopeTypes = Map.insert name next tnames } })
@@ -302,6 +322,7 @@ data ErrorDetail
   | EDFuncAlreadyDeclared PPos
   | EDTypeAlreadyDeclared PPos
   | EDFuncArgRepeated String PPos
+  | EDStructArgRepeated String PPos
   deriving (Show)
 
 showFCol :: PPos -> String -> String
@@ -348,7 +369,8 @@ errorMsg fname (EDVariableReadOnly p) = showFCol p fname ++ "Variable is read on
 errorMsg fname (EDVarAlreadyDeclared p) = showFCol p fname ++ "Variable is already declared in the current scope."
 errorMsg fname (EDFuncAlreadyDeclared p) = showFCol p fname ++ "Function is already declared in the current scope."
 errorMsg fname (EDTypeAlreadyDeclared p) = showFCol p fname ++ "Struct is already declared in the current scope."
-errorMsg fname (EDFuncArgRepeated name p) = showFCol p fname ++ "Function argument name `" ++ name ++ "' is repeated more than once."
+errorMsg fname (EDFuncArgRepeated name p) = showFCol p fname ++ "Function argument named `" ++ name ++ "' is repeated more than once."
+errorMsg fname (EDStructArgRepeated name p) = showFCol p fname ++ "Struct member named `" ++ name ++ "' is repeated more than once."
 
 data FlowReason
   = FRBreak PPos
