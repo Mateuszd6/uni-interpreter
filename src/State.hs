@@ -149,7 +149,7 @@ dumpState s = do
       mapM_ (putStrLn . (\(x, y) -> "      " ++ show x ++ " -> " ++ show y))
       . Map.toList
     putListOfSets =
-      mapM_ ((\(x, y) -> putStr ("      " ++ show x ++ " ->") >> putSet y >> putStrLn "")) $ bindVars s
+      mapM_ (\(x, y) -> putStr ("      " ++ show x ++ " ->") >> putSet y >> putStrLn "") $ bindVars s
     putSet :: (Show a) => Set.Set a -> IO ()
     putSet =
       mapM_ (putStr . (\x -> " " ++ show x))
@@ -221,7 +221,7 @@ createStruct name p fields s@(State _ str@(Store _ _ types _ _ next) scp@(Scope 
 checkBind :: VarId -> Int -> String -> PPos -> State -> Error ()
 checkBind vId scopeN n p (State _ _ _ ((i, set):_))
   | scopeN >= i = Ok () -- TODO: make sure it is >= not > ! -- Variable declared insinde last bind block.
-  | Set.member vId set == True = Ok () -- Variable binded in the curr bind scope.
+  | Set.member vId set = Ok () -- Variable binded in the curr bind scope.
   | otherwise = Fail $ EDBind n p
 
 -- TODO: Rename
@@ -314,12 +314,12 @@ scope fun bind st =
                   Nothing -> bindVars st
                   Just set -> (scopeCnt st + 1, set) : bindVars st
   in do
-    lift $ putStrLn $ "Starting a new scope: " ++ (show $ scopeCnt st + 1)
+    lift $ putStrLn $ "Starting a new scope: " ++ show (scopeCnt st + 1)
     -- lift $ dumpState $ st { scopeCnt = scopeCnt st + 1, bindVars = newBind}
 
     st' <- fun st { scopeCnt = scopeCnt st + 1, bindVars = newBind}
 
-    lift $ putStrLn $ "Closing a scope: " ++ (show $ scopeCnt st + 1)
+    lift $ putStrLn $ "Closing a scope: " ++ show (scopeCnt st + 1)
     return st'{ scopeCnt = scopeCnt st, stateScope = stateScope st, bindVars = bindVars st }
     -- Rollbacks scope and bind vars after leaving the scope.
 
@@ -375,6 +375,7 @@ data ErrorDetail
   | EDFuncArgRepeated String PPos
   | EDStructArgRepeated String PPos
   | EDBind String PPos
+  | EDCantUseWiderBind String PPos
   deriving (Show)
 
 showFCol :: PPos -> String -> String
@@ -424,6 +425,7 @@ errorMsg fname (EDTypeAlreadyDeclared p) = showFCol p fname ++ "Struct is alread
 errorMsg fname (EDFuncArgRepeated name p) = showFCol p fname ++ "Function argument named `" ++ name ++ "' is repeated more than once."
 errorMsg fname (EDStructArgRepeated name p) = showFCol p fname ++ "Struct member named `" ++ name ++ "' is repeated more than once."
 errorMsg fname (EDBind n p) = showFCol p fname ++ "Variable `" ++ n ++ "' is used, but not binded."
+errorMsg fname (EDCantUseWiderBind n p) = showFCol p fname ++ "Can't call function `" ++ n ++ "' because it refers to the wider scope than the current binded block does."
 
 data FlowReason
   = FRBreak PPos

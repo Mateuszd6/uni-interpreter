@@ -39,3 +39,20 @@ foo :: (a : int, b : int) !(out) -> int {
 assert: square(4) == 16;
 assert: foo(1, 2) == 9;
 assert: out == 3; // out was assigned when calling foo.
+
+
+{
+    // Global function that binds out.
+    z := 0;
+    out : int = 0;
+    fine_func :: () !(out) {
+        out = 5;
+    }
+
+    // foo binds z and out...
+    foo :: (a : int, b : int) !(z, out) {
+        fine_func(); // ... so it is safe to call a func that binds only out.
+    }
+
+    foo(1, 2);
+}

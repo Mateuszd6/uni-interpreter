@@ -40,7 +40,6 @@ done
 if [ $errors -eq 0 ]; then
     echo ""
     echo "All tests OK! I guess it's time to do something else now."
-    echo "Maybe programming in a language that doesn't cause an instant headache..."
 else
     echo ""
     echo "$errors failed tests!"

@@ -156,16 +156,22 @@ fnCallParams (IELDefault _ exprs) st = evalExprsListr exprs st
 evalFunction :: Func -> [Var] -> PPos -> State -> ErrorT IO State
 evalFunction func invokeP p st = do
   -- TODO: Fun params are never read-only?
-  st' <- toErrorT $
+  lift $ putStrLn $ "Evaluating function: " ++ show func
+  let foo = case funcBind func of
+        Just x -> (scopeCnt st + 1, x) : bindVars st
+        Nothing -> bindVars st
+      st' = st{ scopeCnt = scopeCnt st + 1, bindVars = foo }
+
+  st'' <- toErrorT $
     foldrM (\(par, (pname, tId)) s -> enforceType par tId p s >>
                                       snd <$> createVar pname False par p s)
-           st { scopeCnt = scopeCnt st + 1,
+           st' { scopeCnt = scopeCnt st' + 1,
                 stateScope = funcScope func
                 -- TODO(BIND): Check bind here.
               } $
            zip invokeP $ funcParams func
 
-  evalStmt (funcBody func) st'
+  evalStmt (funcBody func) st''
 
 -- TODO: make sure it lays next to assgnStructField.
 getStructField :: (TypeId, Struct) -> [String] -> PPos -> State -> Error Var
@@ -206,6 +212,25 @@ getBindVars (BdDefault p idents) st = fromListMaybe <$>
 checkDivByZero :: Int -> Int -> PPos -> Error ()
 checkDivByZero _ 0 p = Fail $ EDDivideByZero p
 checkDivByZero _ _ _ = Ok ()
+
+enfoceBindedVarsAreInBlock :: String -> Func -> PPos -> State -> Error ()
+enfoceBindedVarsAreInBlock fname func p st = do
+  bind <- errorFromMaybe (EDCantUseWiderBind fname p) $ funcBind func
+  if setContainsAll (snd $ head $ bindVars st) bind
+    then Ok ()
+    else Fail $ EDCantUseWiderBind fname p
+  where
+    setContainsAll :: Set.Set VarId -> Set.Set VarId -> Bool
+    setContainsAll wider = foldr (\vId acc -> acc && Set.member vId wider) True
+
+enforceFnCallBindRules :: String -> Func -> PPos -> State -> Error ()
+enforceFnCallBindRules fname func p st =
+  let definedAt = fScopeN func
+      lastBindAt = fst $ head $ bindVars st
+  in
+    if definedAt >= lastBindAt
+      then Ok ()
+      else enfoceBindedVarsAreInBlock fname func p st
 
 evalExpr :: Expr PPos -> State -> ErrorT IO (Var, State)
 
@@ -290,8 +315,10 @@ evalExpr (EFnCall p (Ident fname) params) st = do
   lift $ putStrLn $ "Calling function of name: `" ++ fname ++ "'"
   func <- toErrorT $ snd <$> getFunc fname p st
   (invokeParams, st') <- fnCallParams params st
-  toErrorT $ enforce (length invokeParams == length (funcParams func))
-    $ EDInvalidNumParams p (length $ funcParams func) (length invokeParams)
+  toErrorT $ enforce (length invokeParams == length (funcParams func)) $
+    EDInvalidNumParams p (length $ funcParams func) (length invokeParams)
+
+  toErrorT $ enforceFnCallBindRules fname func p st
 
   -- TODO: __ Copied somewhere else  __
   let returnsValue = not $ funcReturnsVoid $ funcRetT func
@@ -598,16 +625,10 @@ evalStmt (STAssign p (TTar _ targs) (EOTRegular _ expr)) st = do
   vs <- toErrorT $ varToTuple st' p var
   tupleAsgnImpl targs vs p st'
 
--- TODO: Remove once sure SAssign works correctly
--- evalStmt (SAssign p0 (LValueVar p1 (Ident vname)) expr) st = do
-  -- (asgnVal, st') <- evalExpr expr st
-  -- (vId, var) <- toErrorT $ getVar vname p1 st
-  -- toErrorT $ enforceType var (varTypeId asgnVal) p0 st'
-  -- TODO: This all should be handled by setvar.
-
 evalStmt (SAssign p lv expr) st = do
   (asgnVal, st') <- evalExpr expr st
   (membs, (vId, var)) <- toErrorT $ lvalueMem lv st'
+
   toErrorT $ case membs of
     [] -> do -- Assign single variable.
       enforceType var (varTypeId asgnVal) p st'
@@ -637,8 +658,7 @@ runProgram (Prog _ stmts) = dontAllowBreakContinue $
 
 run :: String -> String -> IO ()
 run fname pText = do
-  -- This allows us to handle any kind of error in one place. Whether it's a
-  -- parsing error, type error or any kind of an execution error.
+  -- This allows us to handle any kind of error in one place.
   result <- runErrorT (toErrorT (parseProgram pText) >>= runProgram)
   case result of
     Ok () -> exitSuccess
