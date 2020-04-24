@@ -1,4 +1,9 @@
+x := 1;
 
+! {
+    // _ = x;
+    x = 3;
+}
 print(out, "\n");
 assert: false;
 

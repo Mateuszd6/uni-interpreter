@@ -97,6 +97,20 @@ data State = State
   }
   deriving (Show)
 
+-- Commonly used aliases to get state members
+varsScope :: State -> Map.Map String VarId
+varsScope = scopeVars . stateScope
+funcsScope :: State -> Map.Map String FunId
+funcsScope = scopeFuncs . stateScope
+typesScope :: State -> Map.Map String TypeId
+typesScope = scopeTypes . stateScope
+varsStore :: State -> Map.Map VarId (Var, VarInfo)
+varsStore = storeVars . stateStore
+funcsStore :: State -> Map.Map FunId Func
+funcsStore = storeFuncs . stateStore
+typesStore :: State -> Map.Map TypeId Strct
+typesStore = storeTypes . stateStore
+
 -- TODO Kill temps
 tempDefaultScope :: Scope
 tempDefaultScope = Scope Map.empty Map.empty Map.empty
@@ -115,7 +129,7 @@ dumpState s = do
   putStrLn "    Vars:"
   putMap $ storeVars $ stateStore s
   putStrLn "    Funcs:"
-  putMap $ storeFuncs $ stateStore s
+  putMap $ funcsStore s
   putStrLn "    Types:"
   putMap $ storeTypes $ stateStore s
   -- putStrLn "    Types:"
@@ -204,59 +218,58 @@ createStruct name p fields s@(State _ str@(Store _ _ types _ _ next) scp@(Scope 
                         nextTypeId = next + 1 },
       stateScope = scp{ scopeTypes = Map.insert name next tnames } })
 
--- TODO: Rename
-getVar_ :: VarId -> State -> Maybe (Var, VarInfo)
-getVar_ vId (State _ store _ _) =
-  -- TODO BIND: This also has to have a var checked.
-  Map.lookup vId $ storeVars store
-
 checkBind :: VarId -> Int -> String -> PPos -> State -> Error ()
-checkBind vId scopeN n p st@(State _ _ _ ((i, set):_))
+checkBind vId scopeN n p (State _ _ _ ((i, set):_))
   | scopeN >= i = Ok () -- TODO: make sure it is >= not > ! -- Variable declared insinde last bind block.
   | Set.member vId set == True = Ok () -- Variable binded in the curr bind scope.
   | otherwise = Fail $ EDBind n p
 
+-- TODO: Rename
+getVarImpl :: VarId -> String -> PPos -> State -> Error (Var, VarInfo)
+getVarImpl vId vname p st = do
+  (var, vinfo) <- errorFromMaybe (EDVarNotFound vname p) $
+                  Map.lookup vId (varsStore st)
+  checkBind vId (viScopeN vinfo) vname p st
+  return (var, vinfo)
+
 -- Get variable by name
 getVar :: String -> PPos -> State -> Error (VarId, Var)
-getVar vname p st@(State _ str scp _) = do
-  (vId, var, vinfo) <- errorFromMaybe (EDVarNotFound vname p) $
-    do
-      vId <- Map.lookup vname $ scopeVars scp -- Scope lookup.
-      (var, vinfo) <- Map.lookup vId (storeVars str) -- Store lookup, should not fail.
-      return (vId, var, vinfo)
+getVar vname p st = do
+  vId <- errorFromMaybe (EDVarNotFound vname p) $
+         Map.lookup vname (varsScope st)
 
-  checkBind vId (viScopeN vinfo) vname p st
+  (var, _) <- getVarImpl vId vname p st
   return (vId, var)
 
 getFunc :: String -> PPos -> State -> Error (FunId, Func)
-getFunc fname p (State _ str scp _) =
-  errorFromMaybe (EDFuncNotFound fname p) $
+getFunc fname p st = errorFromMaybe (EDFuncNotFound fname p) $
   do
-    fId <- Map.lookup fname $ scopeFuncs scp -- Scope lookup.
-    func <- Map.lookup fId $ storeFuncs str -- Store lookup, should not fail.
+    fId <- Map.lookup fname (funcsScope st)
+    func <- Map.lookup fId (funcsStore st)
     return (fId, func)
 
 -- TODO: Provide for empty and uninitialized and tuple or don't use it.
 getTypeStruct :: String -> PPos -> State -> Error (TypeId, Strct)
-getTypeStruct name p st =
-  errorFromMaybe (EDTypeNotFound name p) $
+getTypeStruct name p st = errorFromMaybe (EDTypeNotFound name p) $
   do
-    tId <- Map.lookup name $ scopeTypes $ stateScope st -- Scope lookup.
-    strct <- Map.lookup tId $ storeTypes $ stateStore st -- Store lookup, should not fail.
+    tId <- Map.lookup name (typesScope st)
+    strct <- Map.lookup tId (typesStore st)
     return (tId, strct)
+
+checkIfVarIsReadOnly :: VarInfo -> PPos -> Error ()
+checkIfVarIsReadOnly info p = if viIsReadOnly info
+                              then Fail $ EDVariableReadOnly p
+                              else Ok ()
 
 -- TODO: I guess this should never happen, because to set a variable
 --       we have to get it first. Also PPos?
 -- This function does not perform the type check!!
 setVar :: VarId -> Var -> PPos -> State -> Error State
 setVar vId val p s@(State _ str _ _) = do
-  -- TODO: Dont return info from if stmt, instead use another stmt in
-  -- do to test if read only.
-  info <- case getVar_ vId s of
-            Nothing -> Ok undefined -- VarInfo 0 False -- TODO: This should not happen
-            Just (_, info) -> if viIsReadOnly info
-                              then Fail $ EDVariableReadOnly p
-                              else Ok info
+  -- This should never fail unless there is a bug. That's why we give a variable
+  -- an artificial name
+  (_, info) <- getVarImpl vId ("ID=" ++ show vId) p s
+  checkIfVarIsReadOnly info p
   Ok s{ stateStore = str{ storeVars = Map.insert vId (val, info) $ storeVars str }}
 
 -- TODO: Provide for empty and uninitialized and tuple?
@@ -264,9 +277,9 @@ getTypeId :: Type PPos -> State -> Error TypeId
 getTypeId (TInt _) _ = Ok 1
 getTypeId (TBool _) _ = Ok 2
 getTypeId (TString _) _ = Ok 3
-getTypeId (TUser p (Ident tname)) (State _ _ scp _) =
+getTypeId (TUser p (Ident tname)) st =
   errorFromMaybe (EDTypeNotFound tname p) $
-  Map.lookup tname $ scopeTypes scp
+  Map.lookup tname $ typesScope st
 
 getTypeDescr :: TypeId -> PPos -> State -> Error Strct
 getTypeDescr tId p st = errorFromMaybe (EDVariableNotStruct p) $
