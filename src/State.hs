@@ -62,9 +62,6 @@ data Func = Func
   }
   deriving (Show)
 
--- TODO: User can return a struct from a scope which defines it!!!!
--- Probably check in return?
-
 data Store = Store
   {
     storeVars :: Map.Map VarId (Var, VarInfo),
@@ -187,6 +184,17 @@ checkIfParamRepeated params ed =
        Just rep -> Fail $ ed rep
        _ -> return ()
 
+checkBind :: VarId -> Int -> String -> PPos -> State -> Error ()
+checkBind vId scopeN n p (State _ _ _ ((i, set):_))
+  | scopeN >= i = Ok () -- TODO: make sure it is >= not > ! -- Variable declared insinde last bind block.
+  | Set.member vId set = Ok () -- Variable binded in the curr bind scope.
+  | otherwise = Fail $ EDBind n p
+
+checkIfVarIsReadOnly :: VarInfo -> PPos -> Error ()
+checkIfVarIsReadOnly info p = if viIsReadOnly info
+                              then Fail $ EDVariableReadOnly p
+                              else Ok ()
+
 -- Create new variable and add it to the state.
 createVar :: String -> Bool -> Var -> PPos -> State -> Error (VarId, State)
 createVar name rdOnly v p s@(State c str@(Store vars _ _ next _ _) scp@(Scope vnames _ _) _) =
@@ -217,12 +225,6 @@ createStruct name p fields s@(State _ str@(Store _ _ types _ _ next) scp@(Scope 
       stateStore = str{ storeTypes = Map.insert next (Strct name $ Map.fromList fields) types,
                         nextTypeId = next + 1 },
       stateScope = scp{ scopeTypes = Map.insert name next tnames } })
-
-checkBind :: VarId -> Int -> String -> PPos -> State -> Error ()
-checkBind vId scopeN n p (State _ _ _ ((i, set):_))
-  | scopeN >= i = Ok () -- TODO: make sure it is >= not > ! -- Variable declared insinde last bind block.
-  | Set.member vId set = Ok () -- Variable binded in the curr bind scope.
-  | otherwise = Fail $ EDBind n p
 
 -- TODO: Rename
 getVarImpl :: VarId -> String -> PPos -> State -> Error (Var, VarInfo)
@@ -256,13 +258,6 @@ getTypeStruct name p st = errorFromMaybe (EDTypeNotFound name p) $
     strct <- Map.lookup tId (typesStore st)
     return (tId, strct)
 
-checkIfVarIsReadOnly :: VarInfo -> PPos -> Error ()
-checkIfVarIsReadOnly info p = if viIsReadOnly info
-                              then Fail $ EDVariableReadOnly p
-                              else Ok ()
-
--- TODO: I guess this should never happen, because to set a variable
---       we have to get it first. Also PPos?
 -- This function does not perform the type check!!
 setVar :: VarId -> Var -> PPos -> State -> Error State
 setVar vId val p s@(State _ str _ _) = do

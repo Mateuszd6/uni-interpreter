@@ -1,28 +1,21 @@
 {-# LANGUAGE TupleSections #-}
 
-module Main where -- TODO: This line is only to kill unused func warnings.
-
 -- TODO: Void variable can be the RHS on the deduced type.
 -- TODO: It is possible to make a struct of name 'void'
--- TODO: Reserved names for structs and functions.
+-- TODO: Builtin scanf function.
+-- TODO: Fix the issue with *unknown* type.
 
--- TODO: Qualify imports
 import Data.Bits (xor)
-import qualified Data.Map.Strict as Map -- TODO: Explain why strict instead of lazy.
-import qualified Data.Set as Set
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
-import Control.Monad -- TODO: qualify
+import Control.Monad (foldM, foldM_)
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 
-import AbsLanguage -- TODO: Qualify
-
-import State
+import AbsLanguage
 import Parser
-
-showLinCol :: PPos -> String
-showLinCol (Just (line, col)) = show line ++ ":" ++ show col ++ ": " -- TODO
-showLinCol Nothing = ""
+import State
 
 varToInt :: State -> PPos -> Var -> Error Int
 varToInt _ _ (VInt v) = Ok v
@@ -49,23 +42,24 @@ varToTuple _ p (VUninitialized 4) = Fail $ EDVarNotInitialized p -- TODO: Probab
 varToTuple st p var = Fail $
   EDTypeError "tuple" (getTypeNameForED (varTypeId var) st) p
 
-varToStruct :: State -> PPos -> TypeId -> Var -> Error Struct
-varToStruct _ _ desiredId (VStruct tId v)
-  | tId == desiredId = Ok v
-varToStruct _ p desiredId (VUninitialized tId)
-  | tId == desiredId = Fail $ EDVarNotInitialized p
-varToStruct st p desiredId var = Fail $
-  EDTypeError (getTypeNameForED desiredId st) (getTypeNameForED (varTypeId var) st) p
+-- TODO:
+-- varToStruct :: State -> PPos -> TypeId -> Var -> Error Struct
+-- varToStruct _ _ desiredId (VStruct tId v)
+  -- | tId == desiredId = Ok v
+-- varToStruct _ p desiredId (VUninitialized tId)
+  -- | tId == desiredId = Fail $ EDVarNotInitialized p
+-- varToStruct st p desiredId var = Fail $
+  -- EDTypeError (getTypeNameForED desiredId st) (getTypeNameForED (varTypeId var) st) p
 
 asStruct :: PPos -> Var -> Error (TypeId, Struct)
 asStruct _ (VStruct tId str) = Ok (tId, str)
 asStruct p (VUninitialized _) = Fail $ EDVarNotInitialized p
 asStruct p _ = Fail $ EDVariableNotStruct p
 
-enforce :: Bool -> ErrorDetail -> Error ()
-enforce cond err
-  | cond = Ok ()
-  | otherwise = Fail err
+enforceParamLengthEqual :: PPos -> Int -> Int -> Error ()
+enforceParamLengthEqual p expected got
+  | expected == got = Ok ()
+  | otherwise = Fail $ EDInvalidNumParams p expected got
 
 -- Make sure the var is of the desired type or fail with a TypeError.
 enforceType :: Var -> TypeId -> PPos -> State -> Error ()
@@ -152,26 +146,22 @@ fnCallParams (IELEmpty _) st = toErrorT $ Ok ([], st)
 fnCallParams (IELDefault _ exprs) st = evalExprsListr exprs st
 
 -- Value is returned in a tricky way through 'Flow', so it has to be catched.
--- TODO(BIND): Here should be a bind.
 evalFunction :: Func -> [Var] -> PPos -> State -> ErrorT IO State
 evalFunction func invokeP p st = do
   -- TODO: Fun params are never read-only?
-  lift $ putStrLn $ "Evaluating function: " ++ show func
   let foo = case funcBind func of
         Just x -> (scopeCnt st + 1, x) : bindVars st
         Nothing -> bindVars st
-      st' = st{ scopeCnt = scopeCnt st + 1, bindVars = foo }
 
-  st'' <- toErrorT $
+  st' <- toErrorT $
     foldrM (\(par, (pname, tId)) s -> enforceType par tId p s >>
                                       snd <$> createVar pname False par p s)
-           st' { scopeCnt = scopeCnt st' + 1,
-                stateScope = funcScope func
-                -- TODO(BIND): Check bind here.
-              } $
-           zip invokeP $ funcParams func
+           st { scopeCnt = scopeCnt st + 1,
+                stateScope = funcScope func,
+                bindVars = foo } $
+           zip invokeP (funcParams func)
 
-  evalStmt (funcBody func) st''
+  evalStmt (funcBody func) st'
 
 -- TODO: make sure it lays next to assgnStructField.
 getStructField :: (TypeId, Struct) -> [String] -> PPos -> State -> Error Var
@@ -315,9 +305,8 @@ evalExpr (EFnCall p (Ident fname) params) st = do
   lift $ putStrLn $ "Calling function of name: `" ++ fname ++ "'"
   func <- toErrorT $ snd <$> getFunc fname p st
   (invokeParams, st') <- fnCallParams params st
-  toErrorT $ enforce (length invokeParams == length (funcParams func)) $
-    EDInvalidNumParams p (length $ funcParams func) (length invokeParams)
 
+  toErrorT $ enforceParamLengthEqual p (length $ funcParams func) (length invokeParams)
   toErrorT $ enforceFnCallBindRules fname func p st
 
   -- TODO: __ Copied somewhere else  __
@@ -341,8 +330,7 @@ evalExpr (EIife p (FDDefault _ params bind funRet stmts) invkParams) st = do
                                        else catchReturnVoid
       returnHndl = returnHndlImpl p . dontAllowBreakContinue
 
-  toErrorT $ enforce (length invokeParams == length (funcParams func))
-    $ EDInvalidNumParams p (length $ funcParams func) (length invokeParams)
+  toErrorT $ enforceParamLengthEqual p (length $ funcParams func) (length invokeParams)
 
   bindV <- toErrorT $ getBindVars bind st'
   scope2 (returnHndl . evalFunction func invokeParams p) bindV st'
@@ -667,16 +655,16 @@ run fname pText = do
     Fail reason -> printErr (errorMsg fname reason) >> exitFailure
 
 -- TODO.
-usage :: IO ()
-usage = do
-  putStrLn $ unlines
-    [ "usage: Call with one of the following argument combinations:"
-    , "  --help          Display this help message."
-    , "  (no arguments)  Parse stdin verbosely."
-    , "  (files)         Parse content of files verbosely."
-    , "  -s (files)      Silent mode. Parse content of files silently."
-    ]
-  exitFailure
+-- usage :: IO ()
+-- usage = do
+  -- putStrLn $ unlines
+    -- [ "usage: Call with one of the following argument combinations:"
+    -- , "  --help          Display this help message."
+    -- , "  (no arguments)  Parse stdin verbosely."
+    -- , "  (files)         Parse content of files verbosely."
+    -- , "  -s (files)      Silent mode. Parse content of files silently."
+    -- ]
+  -- exitFailure
 
 main :: IO ()
 main = do -- TODO: Support actual arugments.
