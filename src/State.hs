@@ -1,11 +1,13 @@
 module State where -- TODO: rename to runtime?
 
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
-import qualified Data.Map.Strict as Map -- TODO: Explain why strict instead of lazy.
-import qualified Data.Set as Set
 import Data.List (find, sort)
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 
 import AbsLanguage
+
+type PPos = Maybe (Int, Int) -- TODO: Move it upper.
 
 type VarId = Int
 type FunId = Int
@@ -38,8 +40,7 @@ instance Show Var where
   show VTuple { } = "??" -- TODO: This shoudl't be possible to do.
   show VUninitialized { } = "??" -- TODO: Kill unitinialized
 
--- TODO: So that it is clear, that it is a _definition_ of a struct.
-data Strct = Strct { strctName :: String, strctFields :: Map.Map String TypeId }
+data StructDef = StructDef { strctName :: String, strctFields :: Map.Map String TypeId }
   deriving (Show)
 
 type Param = (String, TypeId)
@@ -62,13 +63,23 @@ data Func = Func
   }
   deriving (Show)
 
+-- The state contains two separate things: store, which holds variable
+-- states by their IDs and State which maps names to IDs. This way we
+-- can handle static binding of function parameters, var hiding etc.
+data State = State
+  {
+    scopeCnt :: Int,
+    stateStore :: Store,
+    stateScope :: Scope,
+    bindVars :: [(Int, Set.Set VarId)]
+  }
+  deriving (Show)
+
 data Store = Store
   {
     storeVars :: Map.Map VarId (Var, VarInfo),
-    -- TODO: Instead maybe should be PPos but can't include parser.
-    --       Include this in parser?
     storeFuncs :: Map.Map FunId Func,
-    storeTypes :: Map.Map TypeId Strct,
+    storeTypes :: Map.Map TypeId StructDef,
 
     nextVarId :: Int,
     nextFuncId :: Int,
@@ -76,21 +87,11 @@ data Store = Store
   }
   deriving (Show)
 
--- TODO: Explain!!
 data Scope = Scope
   {
     scopeVars :: Map.Map String VarId,
     scopeFuncs :: Map.Map String FunId,
     scopeTypes :: Map.Map String TypeId
-  }
-  deriving (Show)
-
-data State = State
-  {
-    scopeCnt :: Int,
-    stateStore :: Store,
-    stateScope :: Scope,
-    bindVars :: [(Int, Set.Set VarId)]
   }
   deriving (Show)
 
@@ -105,19 +106,16 @@ varsStore :: State -> Map.Map VarId (Var, VarInfo)
 varsStore = storeVars . stateStore
 funcsStore :: State -> Map.Map FunId Func
 funcsStore = storeFuncs . stateStore
-typesStore :: State -> Map.Map TypeId Strct
+typesStore :: State -> Map.Map TypeId StructDef
 typesStore = storeTypes . stateStore
 
--- TODO Kill temps
-tempDefaultScope :: Scope
-tempDefaultScope = Scope Map.empty Map.empty Map.empty
-tempDefaultStore :: Store
-tempDefaultStore = Store Map.empty Map.empty Map.empty 1 1 5 -- TODO: Make sure id don't bind reserved onces.
+initialState :: State
+initialState = State 0
+                     (Store Map.empty Map.empty Map.empty 1 1 5)
+                     (Scope Map.empty Map.empty Map.empty)
+                     [(-1, Set.fromList [])]
 
-tempDefaultState :: State
-tempDefaultState = State 0 tempDefaultStore tempDefaultScope [(-1, Set.fromList [])]
-
--- TODO: Move to dumping
+-- TODO: Kill when not necesarry
 dumpState :: State -> IO ()
 dumpState s = do
   putStrLn "Dumping state:"
@@ -186,7 +184,7 @@ checkIfParamRepeated params ed =
 
 checkBind :: VarId -> Int -> String -> PPos -> State -> Error ()
 checkBind vId scopeN n p (State _ _ _ ((i, set):_))
-  | scopeN >= i = Ok () -- TODO: make sure it is >= not > ! -- Variable declared insinde last bind block.
+  | scopeN >= i = Ok () -- Variable declared insinde last bind block.
   | Set.member vId set = Ok () -- Variable binded in the curr bind scope.
   | otherwise = Fail $ EDBind n p
 
@@ -206,15 +204,20 @@ createVar name rdOnly v p s@(State c str@(Store vars _ _ next _ _) scp@(Scope vn
                                  nextVarId = next + 1 },
                stateScope = scp{ scopeVars = Map.insert name next vnames } })
 
-createFunc :: String -> Stmt PPos -> [Param] -> FRetT -> Maybe (Set.Set VarId) -> PPos -> State -> Error (FunId, State)
-createFunc name body params ret bind p s@(State c str@(Store _ funcs _  _ next _) scp@(Scope _ fnames _) _) =
-  let scp' = scp{ scopeFuncs = Map.insert name next fnames } -- Allow recursion
+-- TODO: Decide if this is better, or below is better and refactor.
+createFunc :: String -> Stmt PPos ->
+              [Param] -> FRetT ->
+              Maybe (Set.Set VarId) -> -- Bind
+              PPos -> State ->
+              Error (FunId, State)
+createFunc name body params ret bind p st@(State c str@(Store _ _ _  _ next _) _ _) =
+  let scp' = (stateScope st){ scopeFuncs = Map.insert name next (funcsScope st) } -- Allow recursion
       func = Func next body ret params bind scp' c
   in do
-    checkIfAlreadyDefined name fScopeN fnames funcs c (EDFuncAlreadyDeclared p)
+    checkIfAlreadyDefined name fScopeN (funcsScope st) (funcsStore st) c (EDFuncAlreadyDeclared p)
     checkIfParamRepeated (map fst params) (flip EDFuncArgRepeated p)
-    return (next, s{
-               stateStore = str{ storeFuncs = Map.insert next func funcs,
+    return (next, st{
+               stateStore = str{ storeFuncs = Map.insert next func (funcsStore st),
                                  nextFuncId = next + 1 },
                stateScope = scp' })
 
@@ -222,11 +225,10 @@ createStruct :: String -> PPos -> [(String, TypeId)] -> State -> Error (TypeId, 
 createStruct name p fields s@(State _ str@(Store _ _ types _ _ next) scp@(Scope _ _ tnames) _) = do
   checkIfParamRepeated (map fst fields) (flip EDStructArgRepeated p)
   return (next, s{
-      stateStore = str{ storeTypes = Map.insert next (Strct name $ Map.fromList fields) types,
+      stateStore = str{ storeTypes = Map.insert next (StructDef name $ Map.fromList fields) types,
                         nextTypeId = next + 1 },
       stateScope = scp{ scopeTypes = Map.insert name next tnames } })
 
--- TODO: Rename
 getVarImpl :: VarId -> String -> PPos -> State -> Error (Var, VarInfo)
 getVarImpl vId vname p st = do
   (var, vinfo) <- errorFromMaybe (EDVarNotFound vname p) $
@@ -251,7 +253,7 @@ getFunc fname p st = errorFromMaybe (EDFuncNotFound fname p) $
     return (fId, func)
 
 -- TODO: Provide for empty and uninitialized and tuple or don't use it.
-getTypeStruct :: String -> PPos -> State -> Error (TypeId, Strct)
+getTypeStruct :: String -> PPos -> State -> Error (TypeId, StructDef)
 getTypeStruct name p st = errorFromMaybe (EDTypeNotFound name p) $
   do
     tId <- Map.lookup name (typesScope st)
@@ -276,7 +278,7 @@ getTypeId (TUser p (Ident tname)) st =
   errorFromMaybe (EDTypeNotFound tname p) $
   Map.lookup tname $ typesScope st
 
-getTypeDescr :: TypeId -> PPos -> State -> Error Strct
+getTypeDescr :: TypeId -> PPos -> State -> Error StructDef
 getTypeDescr tId p st = errorFromMaybe (EDVariableNotStruct p) $
   Map.lookup tId $ storeTypes $ stateStore st
 
@@ -293,15 +295,14 @@ getTypeNameForED tId (State _ _ scp _)
                 find ((tId ==) . snd) (Map.toList $ scopeTypes scp)
 
 -- typeId is used to determine variable type. We can't use name becasue
--- TODO: explain and decide whether it is used or not.
 varTypeId :: Var -> Int
-varTypeId (VUninitialized tid) = tid -- Permitive types have constant typeids.
+varTypeId (VUninitialized tid) = tid -- TODO: Kill uninitialzied
 varTypeId VEmpty = 0
-varTypeId (VInt _) = 1 -- Permitive types have constant typeids.
+varTypeId (VInt _) = 1
 varTypeId (VBool _) = 2
 varTypeId (VString _) = 3
-varTypeId (VTuple _) = 4 -- TODO: Describe the trick
-varTypeId (VStruct sId _) = sId -- TODO: Structs know their typeids??
+varTypeId (VTuple _) = 4 -- Tuple variables are only used when returning values.
+varTypeId (VStruct sId _) = sId -- Structs know their typeIDs.
 
 scope :: (State -> ErrorT IO State) -> Maybe (Set.Set VarId) -> State -> ErrorT IO State
 scope fun bind st =
@@ -331,14 +332,6 @@ scope2 fun bind st =
   -- (x, st') <- fun st { scopeCnt = scopeCnt st + 1 }
   -- return (x, st'{ stateScope = stateScope st })
 
--- TODO: read this and decide if it stays.
--- Generalized Error Monad (including Monad Transform) to combine error
--- handling with with IO. This features an ErrorDetail type which allows us to
--- give user many detailed information about an error. This is laregly taken
--- from MaybeT implementation in the Haskell standard library.
-
-type PPos = Maybe (Int, Int) -- TODO: Move it upper.
-
 data ErrorDetail
   = EDVarNotFound String PPos
   | EDVarNotInitialized PPos
@@ -350,7 +343,7 @@ data ErrorDetail
   | EDUnexpectedContinue PPos
   | EDUnexpectedReturn PPos
   | EDNoReturn PPos
-  | EDNoReturnNonVoid PPos -- TODO: rename
+  | EDNoReturnNonVoid PPos
   | EDReturnVoid PPos
   | EDInvalidNumParams PPos Int Int
   | EDTupleNumbersDontMatch PPos Int Int

@@ -88,10 +88,8 @@ evalBinExpr :: (State -> PPos -> Var -> Error a) -> -- Convert Var to desired ty
                State ->
                ErrorT IO (Var, State)
 
--- TODO: Ppos.
 evalBinExpr varTo func varCtor lhs rhs constr st = do
   -- The *Conv variables are unwraped value from vars with desired type.
-
   (evaledL, st') <- evalExpr lhs st
   evaledLConv <- toErrorT $ varTo st (getPos lhs) evaledL
 
@@ -120,8 +118,7 @@ evalEqualExpr neg lhs rhs st =
     comp <- toErrorT $ tryComp evaledL evaledR
     return (VBool $ (if neg then not else id) comp, st'')
 
--- Use foldr becasue we wan't to evaluate args from right to left like C does.
--- TODO: https://stackoverflow.com/questions/17055527/lifting-foldr-to-monad
+-- Use foldr becasue we evaluate args from right to left like C does.
 foldrM :: Monad m => (a -> b -> m b) -> b -> [a] -> m b
 foldrM _ d [] = return d
 foldrM f d (x:xs) = foldrM f d xs >>= f x
@@ -638,16 +635,15 @@ evalStmt (SReturn p (RExRegular _ (EOTTuple _ exprs))) st = do
 evalStmt (SBreak p) st = toErrorT $ Flow (FRBreak p) st
 evalStmt (SCont p) st = toErrorT $ Flow (FRContinue p) st
 
--- Evaluate program in initial state. TODO: rename to eval program?
-runProgram :: Program PPos -> ErrorT IO ()
-runProgram (Prog _ stmts) = dontAllowBreakContinue $
-                            dontAllowReturn $
-                            foldM_ (flip evalStmt) tempDefaultState stmts
+evalProgram :: Program PPos -> ErrorT IO ()
+evalProgram (Prog _ stmts) = dontAllowBreakContinue $
+                             dontAllowReturn $
+                             foldM_ (flip evalStmt) initialState stmts
 
 run :: String -> String -> IO ()
 run fname pText = do
   -- This allows us to handle any kind of error in one place.
-  result <- runErrorT (toErrorT (parseProgram pText) >>= runProgram)
+  result <- runErrorT (toErrorT (parseProgram pText) >>= evalProgram)
   case result of
     Ok () -> exitSuccess
     -- TODO: This can't happen:
