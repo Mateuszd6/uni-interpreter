@@ -126,7 +126,7 @@ evalExprsListr :: [Expr PPos] -> State -> ErrorT IO ([Var], State)
 evalExprsListr exprs st = do
   (vars, st') <- foldrM (\ex (vars, s) -> appendFst vars <$> evalExpr ex s) ([], st) exprs
   toErrorT $ mapM_ (\(e, v) -> case v of
-                                 VTuple _ -> Fail $ EDTupleNotAllowed $ getPos e
+                                 VTuple _ -> Fail $ EDTupleNotAllowed (getPos e)
                                  _ -> Ok ())
     $ zip exprs vars
   return (vars, st')
@@ -153,23 +153,43 @@ evalFunction func invokeP p st = do
 
   evalStmt (funcBody func) st'
 
--- TODO: make sure it lays next to assgnStructField.
+getStructFieldType :: TypeId -> String -> PPos -> State -> Error TypeId
+getStructFieldType tId field p st = do
+  strctDescr <- getTypeDescr tId p st
+  errorFromMaybe (EDNoMember p (getTypeName tId st) field) $
+                 Map.lookup field (strctFields strctDescr)
+
+getStructFieldImpl :: (TypeId, Struct) -> String -> PPos -> State
+                   -> Error (TypeId, Struct)
+getStructFieldImpl (tId, struct) field p st = do
+  destTypeId <- getStructFieldType tId field p st
+  destVar <- errorFromMaybe (EDNoMember p (getTypeName tId st) field) $
+             Map.lookup field struct
+  (destTypeId, ) . snd <$> asStruct p destVar
+
 getStructField :: (TypeId, Struct) -> [String] -> PPos -> State -> Error Var
 getStructField (tId, struct) [n] p st =
   errorFromMaybe (EDNoMember p (getTypeName tId st) n) $
     Map.lookup n struct
 
 getStructField (tId, struct) (n:ns) p st = do
-  strctDescr <- getTypeDescr tId p st
-  destTypeId <- errorFromMaybe (EDNoMember p (getTypeName tId st) n) $
-                Map.lookup n $ strctFields strctDescr
-  destVar <- errorFromMaybe (EDNoMember p (getTypeName tId st) n) $
-             Map.lookup n struct
-  destStruct <- snd <$> asStruct p destVar
-
+  (destTypeId, destStruct) <- getStructFieldImpl (tId, struct) n p st
   getStructField (destTypeId, destStruct) ns p st
 
-getStructField _ [] _ _ = undefined -- TODO: Should not happen.
+getStructField _ [] _ _ = undefined -- Would not parse.
+
+assgnStructField :: (TypeId, Struct) -> [String] -> Var -> PPos -> State -> Error Struct
+assgnStructField (tId, struct) [n] asgnVal p st = do
+  destTypeId <- getStructFieldType tId n p st
+  enforceType asgnVal destTypeId p st -- check type of the member
+  return $ Map.insert n asgnVal struct
+
+assgnStructField (tId, struct) (n:ns) asgnVal p st = do
+  (destTypeId, destStruct) <- getStructFieldImpl (tId, struct) n p st
+  modified <- assgnStructField (destTypeId, destStruct) ns asgnVal p st
+  return $ Map.insert n (VStruct destTypeId modified) struct
+
+assgnStructField _ [] _ _ _ = undefined -- Would not parse.
 
 getBindVars :: Bind PPos -> State -> Error (Maybe (Set.Set VarId))
 getBindVars (BdPure _) _ = Ok $ Just $ Set.fromList []
@@ -467,27 +487,6 @@ lvalueMem lv st =
       (vmemb, p, vname) = lvalueMemImpl lv []
   in
     (vmemb, ) <$> getVar vname p st
-
-assgnStructField :: (TypeId, Struct) -> [String] -> Var -> PPos -> State -> Error Struct
-assgnStructField (tId, struct) [n] asgnVal p st = do
-  strctDescr <- getTypeDescr tId p st
-  destTypeId <- errorFromMaybe (EDNoMember p (getTypeName tId st) n) $
-                Map.lookup n $ strctFields strctDescr
-  enforceType asgnVal destTypeId p st -- check type of the member
-  return $ Map.insert n asgnVal struct
-
-assgnStructField (tId, struct) (n:ns) asgnVal p st = do
-  strctDescr <- getTypeDescr tId p st
-  destTypeId <- errorFromMaybe (EDNoMember p (getTypeName tId st) n) $
-                Map.lookup n $ strctFields strctDescr
-  destVar <- errorFromMaybe (EDNoMember p (getTypeName tId st) n) $
-             Map.lookup n struct
-  destStruct <- snd <$> asStruct p destVar
-  modified <- assgnStructField (destTypeId, destStruct) ns asgnVal p st
-
-  return $ Map.insert n (VStruct destTypeId modified) struct
-
-assgnStructField _ [] _ _ _ = undefined -- TODO: Should not happen.
 
 evalStmt :: Stmt PPos -> State -> ErrorT IO State
 

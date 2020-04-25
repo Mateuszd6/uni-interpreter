@@ -303,7 +303,6 @@ getTypeName tId st
   | otherwise = maybe ("*unknown* (typeId = " ++ show tId ++ ")") fst $
                 find ((tId ==) . snd) (Map.toList $ typesScope st)
 
--- typeId is used to determine variable type. We can't use name becasue
 varTypeId :: Var -> Int
 varTypeId (VUninitialized tid) = tid -- TODO: Kill uninitialzied
 varTypeId VEmpty = 0
