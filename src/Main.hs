@@ -9,6 +9,7 @@ import Control.Monad (foldM, foldM_)
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
 import Data.Bits (xor)
 import Data.Foldable (foldl')
+import System.IO (hFlush, stdout)
 import System.IO.Error (catchIOError)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
@@ -17,6 +18,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 import AbsLanguage
+import Common
 import Parser
 import State
 
@@ -228,27 +230,7 @@ evalExpr (EInt _ intVal) st = do
   let res = VInt $ fromInteger intVal
   return (res, st)
 
-evalExpr (EString _ strVal) st = do
-  -- BNFC seems to keep the string escaped, so we have to unescape it.
-  let unescapeImpl :: String -> String -> String
-      unescapeImpl acc ('\\':'a':sx) = unescapeImpl ('\a':acc) sx
-      unescapeImpl acc ('\\':'b':sx) = unescapeImpl ('\b':acc) sx
-      unescapeImpl acc ('\\':'f':sx) = unescapeImpl ('\f':acc) sx
-      unescapeImpl acc ('\\':'n':sx) = unescapeImpl ('\n':acc) sx
-      unescapeImpl acc ('\\':'r':sx) = unescapeImpl ('\r':acc) sx
-      unescapeImpl acc ('\\':'t':sx) = unescapeImpl ('\t':acc) sx
-      unescapeImpl acc ('\\':'v':sx) = unescapeImpl ('\v':acc) sx
-      unescapeImpl acc ('\\':'\'':sx) = unescapeImpl ('\'':acc) sx
-      unescapeImpl acc ('\\':'"':sx) = unescapeImpl ('"':acc) sx
-      unescapeImpl acc ('\\':'\\':sx) = unescapeImpl ('\\':acc) sx
-      unescapeImpl acc ['\\'] = acc -- \ at the end should not parse.
-      unescapeImpl acc (x:sx) = unescapeImpl (x:acc) sx
-      unescapeImpl acc [] = acc
-
-      unescape :: String -> String
-      unescape = reverse . unescapeImpl [] . tail . init
-
-  return (VString $ unescape strVal, st)
+evalExpr (EString _ strVal) st = return (VString $ unescape strVal, st)
 
 -- Bfnc doesn't treat booleans as a native types, so unwrap it.
 evalExpr (EBool _ boolVal) st = do
@@ -335,22 +317,16 @@ evalExpr (EIife p (FDDefault _ params bind funRet stmts) invkParams) st = do
   bindV <- toErrorT $ getBindVars bind st'
   scope2 (returnHndl . evalFunction func invokeParams p) bindV st'
 
-vsIsVarReadOnly :: VarSpec a -> Bool
-vsIsVarReadOnly (VSReadOnly _) = True
-vsIsVarReadOnly _ = False
-
--- evalVarDeclImpl, evalVarAsgnImpl have same signatures. TODO: Not
--- any more? This is important so that we can use them interchangably,
--- e.g. in tuples.
 evalVarDeclImpl :: VarSpec PPos -> String -> Var -> PPos -> State -> Error State
 evalVarDeclImpl spec vname var p st = snd <$>
-  createVar vname (vsIsVarReadOnly spec) var p st
+  createVar vname (varSpecReadOnly spec) var p st
+  where
+    varSpecReadOnly :: VarSpec a -> Bool
+    varSpecReadOnly (VSReadOnly _) = True
+    varSpecReadOnly _ = False
 
--- TODO: this can be regular Error, not errorT
 evalVarAsgnImpl :: String -> Var -> PPos -> State -> Error State
 evalVarAsgnImpl vname asgnVal p st = do
-  -- (asgnVal, st') <- evalExpr expr st
-  -- (vId, var) <- toErrorT $ getVar vname p1 st
   (vId, var) <- getVar vname p st
   enforceType var (varTypeId asgnVal) p st
   setVar vId asgnVal p st
@@ -444,11 +420,10 @@ dontAllowReturn st = do
     _ -> err_
 
 parseRetType :: FuncRetT PPos -> State -> Error FRetT
-parseRetType (FRTSingle _ t) st = FRetTSinge <$> getTypeId t st
-parseRetType (FRTTuple _ types) st =
-  FRetTTuple <$> foldrM (\a b -> flip (:) b <$> getTypeId a st) [] types
-
 parseRetType (FRTEmpty _) _ = Ok $ FRetTSinge 0
+parseRetType (FRTSingle _ t) st = FRetTSinge <$> getTypeId t st
+parseRetType (FRTTuple _ types) st = FRetTTuple <$>
+  foldrM (\a b -> flip (:) b <$> getTypeId a st) [] types
 
 funcReturnsVoid :: FRetT -> Bool
 funcReturnsVoid (FRetTSinge 0) = True
@@ -458,12 +433,6 @@ funcToParams :: FunParams PPos -> State -> Error [Param]
 funcToParams (FPEmpty _) _ = Ok []
 funcToParams (FPList _ declParams) st =
   mapM (\(DDeclBasic _ (Ident n) t) -> (n,) <$> getTypeId t st) declParams
-
--- Equivalent to zip if lists have equal lengths, Nothing otherwise
-tryZip :: [a] -> [b] -> Maybe [(a, b)]
-tryZip [] [] = Just []
-tryZip (x:xs) (y:ys) = (:) (x, y) <$> tryZip xs ys
-tryZip _ _ = Nothing
 
 tupleAsgnOrDeclImpl :: Bool -> [IdentOrIgnr PPos] -> [Var] -> PPos -> State -> ErrorT IO State
 tupleAsgnOrDeclImpl decl targs vs p st = do
@@ -535,35 +504,27 @@ evalStmt (SAssert p expr) st = do
     then toErrorT $ Fail $ EDAssertFail p
     else return st'
 
-evalStmt (SPrint _ exprs) st =
-  let printFstRetSnd :: Show a => (a, b) -> IO b
-      printFstRetSnd (x, y) = putStr (show x) >> return y
-  in
-    foldM (\s ex -> evalExpr ex s >>= lift . printFstRetSnd) st exprs
+evalStmt (SPrint _ exprs) st = do
+  st' <- foldM (\s ex -> evalExpr ex s >>= lift . printFstRetSnd) st exprs
+  lift $ hFlush stdout -- Just in case
+  return st'
 
 evalStmt (SScan _ types) st = do
   toErrorT $ mapM_ enforceIsBultinType types
   line <- lift $ catchIOError getLine (\_ -> return [])
   let failedParse t l = (False, (False, toUninitialized t) : l)
       vars = reverse $ snd $
-             foldl' (\(parsedSoFar, l) (s, t) ->
+             foldl' (\(parsedSoFar, l) (t, s) ->
                         if parsedSoFar
                           then maybe (failedParse t l)
-                               ((True,) . flip (:) l <$> (True,)) (parse t s)
+                               ((True,) . flip (:) l <$> (True,)) (s >>= parse t)
                           else failedParse t l)
                     (True, [])
-                    (zip (words line) types)
+                    (zipMaybe types (words line))
       parsedSuccessfully = countIf fst vars
   lift $ print $ VInt parsedSuccessfully : map snd vars
   return st
   where
-    -- TODO: Move to common?
-    countIfImpl :: (a -> Bool) -> [a] -> Int -> Int
-    countIfImpl pr (x:xs) acc = if pr x then countIfImpl pr xs (acc + 1) else acc
-    countIfImpl _ [] acc = acc
-    countIf :: (a -> Bool) -> [a] -> Int
-    countIf pr l = countIfImpl pr l 0
-
     parse :: Type PPos -> String -> Maybe Var
     parse (TInt _) s = VInt <$> (readMaybe :: String -> Maybe Int) s
     parse (TBool _) s = VBool <$> (readMaybe :: String -> Maybe Bool) s
