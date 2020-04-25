@@ -2,7 +2,8 @@
 
 -- TODO: Void variable can be the RHS on the deduced type.
 -- TODO: It is possible to make a struct of name 'void'
--- TODO: Builtin scanf function.
+-- TODO: Scan docs.
+-- TODO: Changes docs.
 -- TODO: Fix the issue with *unknown* type.
 
 import Control.Monad (foldM, foldM_)
@@ -183,27 +184,22 @@ getStructField (tId, struct) (n:ns) p st = do
 
 getStructField _ [] _ _ = undefined -- TODO: Should not happen.
 
--- TODO(CLEANUP): Try to remove these two:
-appendMaybe :: Maybe [a] -> a -> Maybe [a]
-appendMaybe Nothing _ = Nothing
-appendMaybe (Just xs) x = Just (x:xs)
-
-fromListMaybe :: Ord a => Maybe [a] -> Maybe (Set.Set a)
-fromListMaybe (Just l) = Just $ Set.fromList l
-fromListMaybe Nothing = Nothing
-
 getBindVars :: Bind PPos -> State -> Error (Maybe (Set.Set VarId))
 getBindVars (BdPure _) _ = Ok $ Just $ Set.fromList []
 getBindVars (BdPureAlt _) _ = Ok $ Just $ Set.fromList[]
 getBindVars (BdNone _) _ = Ok Nothing
-getBindVars (BdDefault p idents) st = fromListMaybe <$>
-  foldM (\acc name -> appendMaybe acc . fst <$> getVar name p st)
+getBindVars (BdDefault p idents) st = fromMaybeList <$>
+  foldM (\acc name -> (\x -> (:) x <$> acc) . fst <$> getVar name p st)
         (Just [])
         (map (\(Ident str) -> str) idents)
+  where
+    fromMaybeList :: Ord a => Maybe [a] -> Maybe (Set.Set a)
+    fromMaybeList (Just l) = Just $ Set.fromList l
+    fromMaybeList Nothing = Nothing
 
-checkDivByZero :: Int -> Int -> PPos -> Error ()
-checkDivByZero _ 0 p = Fail $ EDDivideByZero p
-checkDivByZero _ _ _ = Ok ()
+enforceNoDivByZero :: Int -> Int -> PPos -> Error ()
+enforceNoDivByZero _ 0 p = Fail $ EDDivideByZero p
+enforceNoDivByZero _ _ _ = Ok ()
 
 enfoceBindedVarsAreInBlock :: String -> Func -> PPos -> State -> Error ()
 enfoceBindedVarsAreInBlock fname func p st = do
@@ -240,38 +236,29 @@ evalExpr (EBool _ boolVal) st = do
 evalExpr (EPlus _ lhs rhs) st = evalBinExpr varToInt (+) VInt lhs rhs Nothing st
 evalExpr (EMinus _ lhs rhs) st = evalBinExpr varToInt (-) VInt lhs rhs Nothing st
 evalExpr (ETimes _ lhs rhs) st = evalBinExpr varToInt (*) VInt lhs rhs Nothing st
-evalExpr (EDiv _ lhs rhs) st = evalBinExpr varToInt div VInt lhs rhs (Just checkDivByZero) st
-evalExpr (EMod _ lhs rhs) st = evalBinExpr varToInt mod VInt lhs rhs (Just checkDivByZero) st
+evalExpr (EDiv _ lhs rhs) st = evalBinExpr varToInt div VInt lhs rhs (Just enforceNoDivByZero) st
+evalExpr (EMod _ lhs rhs) st = evalBinExpr varToInt mod VInt lhs rhs (Just enforceNoDivByZero) st
 evalExpr (EPow _ lhs rhs) st = evalBinExpr varToInt (^) VInt lhs rhs Nothing st
-
 evalExpr (EGeq _ lhs rhs) st = evalBinExpr varToInt (>=) VBool lhs rhs Nothing st
 evalExpr (ELeq _ lhs rhs) st = evalBinExpr varToInt (<=) VBool lhs rhs Nothing st
 evalExpr (EGt _ lhs rhs) st = evalBinExpr varToInt (>) VBool lhs rhs Nothing st
 evalExpr (ELt _ lhs rhs) st = evalBinExpr varToInt (<) VBool lhs rhs Nothing st
-
 evalExpr (ELor _ lhs rhs) st = evalBinExpr varToBool (||) VBool lhs rhs Nothing st
 evalExpr (ELand _ lhs rhs) st = evalBinExpr varToBool (&&) VBool lhs rhs Nothing st
 evalExpr (EXor _ lhs rhs) st = evalBinExpr varToBool xor VBool lhs rhs Nothing st
-
 evalExpr (ECat _ lhs rhs) st = evalBinExpr varToString (++) VString lhs rhs Nothing st
 
--- Operators '==' and '!=' works with any builtin type and have to be
--- treated differently for that reason.
+-- Operators '==' and '!=' works with any builtin type.
 evalExpr (EEq _ lhs rhs) st = evalEqualExpr False lhs rhs st
 evalExpr (ENeq _ lhs rhs) st = evalEqualExpr True lhs rhs st
 
-evalExpr (ELValue p (LValueVar _ (Ident vname))) st = do
-  (_, v) <- toErrorT $ getVar vname p st
-  return (v, st)
+evalExpr (ELValue p (LValueVar _ (Ident vname))) st = toErrorT $
+  (, st) <$> snd <$> getVar vname p st
 
 evalExpr (ELValue p lv@LValueMemb {}) st = do
   (members, (_, var)) <- toErrorT $ lvalueMem lv st
-  lift $ putStrLn $ "Var: " ++ show var
-  lift $ putStrLn $ "Members: " ++ show members
-  tInfo <- toErrorT $ asStruct p var
-  ret <- toErrorT $ getStructField tInfo members p st
-  lift $ putStrLn $ "Evaluated lvalue, got: " ++ show ret
-  return (ret, st)
+  structVar <- toErrorT $ asStruct p var
+  toErrorT $ (, st) <$> getStructField structVar members p st
 
 evalExpr (ENew p (Ident name)) st
   -- TODO: It is probably not necesarry, because it just won't parse.
@@ -297,7 +284,7 @@ evalExpr (EFnCall p (Ident fname) params) st = do
                                        else catchReturnVoid
       returnHndl = returnHndlImpl p . dontAllowBreakContinue
 
-  scope2 (returnHndl . evalFunction func invokeParams p) Nothing st' -- TODO: Get bind from func def.
+  scope2 (returnHndl . evalFunction func invokeParams p) Nothing st'
 
 evalExpr (EIife p (FDDefault _ params bind funRet stmts) invkParams) st = do
   -- TODO: A lot of this is copypasted.
@@ -432,7 +419,7 @@ funcReturnsVoid _ = False
 funcToParams :: FunParams PPos -> State -> Error [Param]
 funcToParams (FPEmpty _) _ = Ok []
 funcToParams (FPList _ declParams) st =
-  mapM (\(DDeclBasic _ (Ident n) t) -> (n,) <$> getTypeId t st) declParams
+  mapM (\(DDeclBasic _ (Ident n) t) -> (n, ) <$> getTypeId t st) declParams
 
 tupleAsgnOrDeclImpl :: Bool -> [IdentOrIgnr PPos] -> [Var] -> PPos -> State -> ErrorT IO State
 tupleAsgnOrDeclImpl decl targs vs p st = do
@@ -456,7 +443,7 @@ tupleAsgnImpl = tupleAsgnOrDeclImpl False
 getStructMemebers :: StrcMembers PPos -> State -> Error [(String, TypeId)]
 getStructMemebers (SMEmpty _) _ = Ok []
 getStructMemebers (SMDefault _ members) st =
-  foldrM (\(DStrMem _ (Ident name) tp) acc -> flip (:) acc . (name,) <$>
+  foldrM (\(DStrMem _ (Ident name) tp) acc -> flip (:) acc . (name, ) <$>
                                               getTypeId tp st)
          [] members
 
@@ -468,7 +455,7 @@ lvalueMem lv st =
       lvalueMemImpl (LValueMemb _ v (Ident name)) fs = lvalueMemImpl v $ name:fs
       (vmemb, p, vname) = lvalueMemImpl lv []
   in
-    (vmemb,) <$> getVar vname p st
+    (vmemb, ) <$> getVar vname p st
 
 assgnStructField :: (TypeId, Struct) -> [String] -> Var -> PPos -> State -> Error Struct
 assgnStructField (tId, struct) [n] asgnVal p st = do
@@ -509,7 +496,7 @@ evalStmt (SPrint _ exprs) st = do
   lift $ hFlush stdout -- Just in case
   return st'
 
-evalStmt (SScan _ types) st = do
+evalStmt (SScan p types) st = do
   toErrorT $ mapM_ enforceIsBultinType types
   line <- lift $ catchIOError getLine (\_ -> return [])
   let failedParse t l = (False, (False, toUninitialized t) : l)
@@ -517,13 +504,13 @@ evalStmt (SScan _ types) st = do
              foldl' (\(parsedSoFar, l) (t, s) ->
                         if parsedSoFar
                           then maybe (failedParse t l)
-                               ((True,) . flip (:) l <$> (True,)) (s >>= parse t)
+                               ((True, ) . flip (:) l <$> (True, )) (s >>= parse t)
                           else failedParse t l)
                     (True, [])
                     (zipMaybe types (words line))
       parsedSuccessfully = countIf fst vars
-  lift $ print $ VInt parsedSuccessfully : map snd vars
-  return st
+
+  toErrorT $ Flow (FRReturn p (VTuple $ VInt parsedSuccessfully : map snd vars)) st
   where
     parse :: Type PPos -> String -> Maybe Var
     parse (TInt _) s = VInt <$> (readMaybe :: String -> Maybe Int) s

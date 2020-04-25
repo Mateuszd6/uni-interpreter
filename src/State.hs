@@ -32,10 +32,10 @@ data VarInfo = VarInfo
   deriving (Show)
 
 instance Show Var where
-  show VEmpty = "void "
-  show (VInt i) = show i ++ " "
-  show (VBool b) = show b ++ " "
-  show (VString s) = s ++ " "
+  show VEmpty = "void"
+  show (VInt i) = show i
+  show (VBool b) = show b
+  show (VString s) = s
   show VStruct { } = "??" -- TODO: This is possible...
   show VTuple { } = "??" -- TODO: This shoudl't be possible to do.
   show VUninitialized { } = "??" -- TODO: Kill unitinialized
