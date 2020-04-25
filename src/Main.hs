@@ -207,6 +207,14 @@ enforceFnCallBindRules fname func p st =
       then Ok ()
       else enfoceBindedVarsAreInBlock fname func p st
 
+returnHanlder :: Func -> PPos -> (ErrorT IO State -> ErrorT IO (Var, State))
+returnHanlder func p =
+  returnHndl p . dontAllowBreakContinue
+  where
+    returnHndl = if not $ funcReturnsVoid $ funcRetT func
+                   then expectReturnValue (funcRetT func)
+                   else catchReturnVoid
+
 evalExpr :: Expr PPos -> State -> ErrorT IO (Var, State)
 
 evalExpr (EInt _ intVal) st = do
@@ -258,38 +266,27 @@ evalExpr (ENew p (Ident name)) st
       return (var, st)
 
 evalExpr (EFnCall p (Ident fname) params) st = do
-  lift $ putStrLn $ "Calling function of name: `" ++ fname ++ "'"
   func <- toErrorT $ snd <$> getFunc fname p st
   (invokeParams, st') <- fnCallParams params st
 
   toErrorT $ enforceParamLengthEqual p (length $ funcParams func) (length invokeParams)
   toErrorT $ enforceFnCallBindRules fname func p st
 
-  -- TODO: __ Copied somewhere else  __
-  let returnsValue = not $ funcReturnsVoid $ funcRetT func
-      returnHndlImpl = if returnsValue then expectReturnValue $ funcRetT func
-                                       else catchReturnVoid
-      returnHndl = returnHndlImpl p . dontAllowBreakContinue
-
-  scope2 (returnHndl . evalFunction func invokeParams p) Nothing st'
+  scope2 (returnHanlder func p . evalFunction func invokeParams p) Nothing st'
 
 evalExpr (EIife p (FDDefault _ params bind funRet stmts) invkParams) st = do
-  -- TODO: A lot of this is copypasted.
   retT <- toErrorT $ parseRetType funRet st
   fParams <- toErrorT $ funcToParams params st
   (invokeParams, st') <- fnCallParams invkParams st
+  bindV <- toErrorT $ getBindVars bind st'
 
   let body = SBlock p (BdNone Nothing) stmts
-      func = Func (-1) body retT fParams Nothing (stateScope st') (scopeCnt st')
-      returnsValue = not $ funcReturnsVoid $ funcRetT func
-      returnHndlImpl = if returnsValue then expectReturnValue $ funcRetT func
-                                       else catchReturnVoid
-      returnHndl = returnHndlImpl p . dontAllowBreakContinue
+      func = Func (-1) body retT fParams bindV (stateScope st') (scopeCnt st')
 
   toErrorT $ enforceParamLengthEqual p (length $ funcParams func) (length invokeParams)
+  -- No need to enforce bind rules, as iife is defined in the scope its used.
 
-  bindV <- toErrorT $ getBindVars bind st'
-  scope2 (returnHndl . evalFunction func invokeParams p) bindV st'
+  scope2 (returnHanlder func p . evalFunction func invokeParams p) Nothing st'
 
 evalExpr (EScan _ types) st = do
   toErrorT $ mapM_ enforceIsBultinType types

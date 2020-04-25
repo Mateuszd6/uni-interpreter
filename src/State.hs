@@ -188,6 +188,9 @@ checkBind vId scopeN n p (State _ _ _ ((i, set):_))
   | Set.member vId set = Ok () -- Variable binded in the curr bind scope.
   | otherwise = Fail $ EDBind n p
 
+-- We always have at least one bind rule in the scope:
+checkBind _ _ _ _ (State _ _ _ []) = undefined
+
 checkIfVarIsReadOnly :: VarInfo -> PPos -> Error ()
 checkIfVarIsReadOnly info p = if viIsReadOnly info
                               then Fail $ EDVariableReadOnly p

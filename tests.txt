@@ -1,3 +1,8 @@
+void :: struct {
+    x : int;
+    y : int;
+}
+
 [parsed, x, y] := scan(int, int);
 assert: parsed == 2; // != 2 means parsing error.
 print("You said: ", x, ", ", y, "\n");
