@@ -5,12 +5,14 @@
 -- TODO: Builtin scanf function.
 -- TODO: Fix the issue with *unknown* type.
 
-import Data.Bits (xor)
-import System.IO
-import System.Environment (getArgs)
-import System.Exit (exitFailure, exitSuccess)
 import Control.Monad (foldM, foldM_)
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
+import Data.Bits (xor)
+import Data.Foldable (foldl')
+import System.IO.Error (catchIOError)
+import System.Environment (getArgs)
+import System.Exit (exitFailure, exitSuccess)
+import Text.Read (readMaybe)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
@@ -539,24 +541,37 @@ evalStmt (SPrint _ exprs) st =
   in
     foldM (\s ex -> evalExpr ex s >>= lift . printFstRetSnd) st exprs
 
-evalStmt (SScan _ types) st =
-  let toReadVar :: Type PPos -> (String -> (Var, String))
-      toReadVar (TInt _) = (\(x, y) -> (VInt x, y)) . head . (reads :: ReadS Int)
-      toReadVar (TBool _) = (\(x, y) -> (VBool x, y)) . head . (reads :: ReadS Bool)
-      toReadVar (TString _) = (\(x, y) -> (VString x, y)) . head . (reads :: ReadS String)
-      toReadVar _ = error "Can't read"
-  in do
-    mapM_ (\x -> lift $ putStrLn ("Should read: " ++ show x)) types
-    line <- lift $ getLine
-    let r = foldl (\(acc, str) t -> let (v, rest) = (toReadVar t) str
-                                    in (v:acc, rest)) ([], line) types
+evalStmt (SScan _ types) st = do
+  toErrorT $ mapM_ enforceIsBultinType types
+  line <- lift $ catchIOError getLine (\_ -> return [])
+  let failedParse t l = (False, (False, toUninitialized t) : l)
+      vars = reverse $ snd $
+             foldl' (\(parsedSoFar, l) (s, t) ->
+                        if parsedSoFar
+                          then maybe (failedParse t l)
+                               ((True,) . flip (:) l <$> (True,)) (parse t s)
+                          else failedParse t l)
+                    (True, [])
+                    (zip (words line) types)
+      parsedSuccessfully = countIf fst vars
+  lift $ print $ VInt parsedSuccessfully : map snd vars
+  return st
+  where
+    -- TODO: Move to common?
+    countIfImpl :: (a -> Bool) -> [a] -> Int -> Int
+    countIfImpl pr (x:xs) acc = if pr x then countIfImpl pr xs (acc + 1) else acc
+    countIfImpl _ [] acc = acc
+    countIf :: (a -> Bool) -> [a] -> Int
+    countIf pr l = countIfImpl pr l 0
 
-    lift $ print r
-    return st
-  -- let printFstRetSnd :: Show a => (a, b) -> IO b
-      -- printFstRetSnd (x, y) = putStr (show x) >> return y
-  -- in
-    -- foldM (\s ex -> evalExpr ex s >>= lift . printFstRetSnd) st exprs
+    parse :: Type PPos -> String -> Maybe Var
+    parse (TInt _) s = VInt <$> (readMaybe :: String -> Maybe Int) s
+    parse (TBool _) s = VBool <$> (readMaybe :: String -> Maybe Bool) s
+    parse (TString _) s = Just $ VString s
+    parse _ _ = undefined -- Safe, because we've checked for these types before
+
+    toUninitialized :: Type PPos -> Var
+    toUninitialized t = VUninitialized $ nofail $ getTypeId t st
 
 evalStmt (SIf _ expr stmt) st = scope (evalIfStmtImpl expr stmt Nothing) Nothing st
 evalStmt (SIfElse _ expr stmt elStmt) st = scope (evalIfStmtImpl expr stmt (Just elStmt)) Nothing st

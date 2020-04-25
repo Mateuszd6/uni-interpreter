@@ -1,4 +1,4 @@
-scan(int, int, string);
+scan(int, foo, string);
 
 x := 1;
 
