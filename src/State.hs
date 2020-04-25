@@ -290,15 +290,15 @@ getTypeDescr tId p st = errorFromMaybe (EDVariableNotStruct p) $
 
 -- This is reverse map lookup, which is slow, but is done only once, when
 -- reporting the type error, in case when program is exploding anyway.
-getTypeNameForED :: TypeId -> State -> String
-getTypeNameForED tId (State _ _ scp _)
+getTypeName :: TypeId -> State -> String
+getTypeName tId st
   | tId == 0 = "void"
   | tId == 1 = "int"
   | tId == 2 = "bool"
   | tId == 3 = "string"
   | tId == 4 = "tuple" -- TODO: describe the trick
   | otherwise = maybe ("*unknown* (typeId = " ++ show tId ++ ")") fst $
-                find ((tId ==) . snd) (Map.toList $ scopeTypes scp)
+                find ((tId ==) . snd) (Map.toList $ typesScope st)
 
 -- typeId is used to determine variable type. We can't use name becasue
 varTypeId :: Var -> Int

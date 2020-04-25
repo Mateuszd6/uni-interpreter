@@ -23,39 +23,26 @@ import Common
 import Parser
 import State
 
-varToInt :: State -> PPos -> Var -> Error Int
-varToInt _ _ (VInt v) = Ok v
-varToInt _ p (VUninitialized 1) = Fail $ EDVarNotInitialized p
-varToInt st p var = Fail $
-  EDTypeError "int" (getTypeNameForED (varTypeId var) st) p
+asInt :: State -> PPos -> Var -> Error Int
+asInt _ _ (VInt v) = Ok v
+asInt _ p (VUninitialized 1) = Fail $ EDVarNotInitialized p
+asInt st p var = Fail $ EDTypeError "int" (getTypeName (varTypeId var) st) p
 
-varToBool :: State -> PPos -> Var -> Error Bool
-varToBool _ _ (VBool v) = Ok v
-varToBool _ p (VUninitialized 2) = Fail $ EDVarNotInitialized p
-varToBool st p var = Fail $
-  EDTypeError "bool" (getTypeNameForED (varTypeId var) st) p
+asBool :: State -> PPos -> Var -> Error Bool
+asBool _ _ (VBool v) = Ok v
+asBool _ p (VUninitialized 2) = Fail $ EDVarNotInitialized p
+asBool st p var = Fail $ EDTypeError "bool" (getTypeName (varTypeId var) st) p
 
-varToString :: State -> PPos -> Var -> Error String
-varToString _ _ (VString v) = Ok v
-varToString _ p (VUninitialized 3) = Fail $ EDVarNotInitialized p
-varToString st p var = Fail $
-  EDTypeError "string" (getTypeNameForED (varTypeId var) st) p
+asString :: State -> PPos -> Var -> Error String
+asString _ _ (VString v) = Ok v
+asString _ p (VUninitialized 3) = Fail $ EDVarNotInitialized p
+asString st p var = Fail $ EDTypeError "string" (getTypeName (varTypeId var) st) p
 
--- TODO: why we hardcode the names, and don't use getTypeNameForED?
-varToTuple :: State -> PPos -> Var -> Error [Var]
-varToTuple _ _ (VTuple v) = Ok v
-varToTuple _ p (VUninitialized 4) = Fail $ EDVarNotInitialized p -- TODO: Probably should not happen
-varToTuple st p var = Fail $
-  EDTypeError "tuple" (getTypeNameForED (varTypeId var) st) p
-
--- TODO:
--- varToStruct :: State -> PPos -> TypeId -> Var -> Error Struct
--- varToStruct _ _ desiredId (VStruct tId v)
-  -- | tId == desiredId = Ok v
--- varToStruct _ p desiredId (VUninitialized tId)
-  -- | tId == desiredId = Fail $ EDVarNotInitialized p
--- varToStruct st p desiredId var = Fail $
-  -- EDTypeError (getTypeNameForED desiredId st) (getTypeNameForED (varTypeId var) st) p
+-- TODO: why we hardcode the names, and don't use getTypeName?
+asTuple :: State -> PPos -> Var -> Error [Var]
+asTuple _ _ (VTuple v) = Ok v
+asTuple _ p (VUninitialized 4) = Fail $ EDVarNotInitialized p -- TODO: Probably should not happen
+asTuple st p var = Fail $ EDTypeError "tuple" (getTypeName (varTypeId var) st) p
 
 asStruct :: PPos -> Var -> Error (TypeId, Struct)
 asStruct _ (VStruct tId str) = Ok (tId, str)
@@ -72,7 +59,7 @@ enforceType :: Var -> TypeId -> PPos -> State -> Error ()
 enforceType v tId p st
   | varTypeId v == tId = Ok ()
   | otherwise = Fail $
-    EDTypeError (getTypeNameForED tId st) (getTypeNameForED (varTypeId v) st) p
+    EDTypeError (getTypeName tId st) (getTypeName (varTypeId v) st) p
 
 enforceRetType :: Var -> FRetT -> PPos -> State -> Error ()
 enforceRetType (VTuple _) (FRetTSinge _) p _ = Fail $ EDTupleReturned p
@@ -116,8 +103,8 @@ evalEqualExpr neg lhs rhs st =
       tryComp (VBool x) (VBool y) = Ok $ x == y
       tryComp (VString x) (VString y) = Ok $ x == y
       tryComp v1 v2 = Fail $ EDCantCompare (getPos lhs)
-                                 (getTypeNameForED (varTypeId v1) st)
-                                 (getTypeNameForED (varTypeId v2) st)
+                                 (getTypeName (varTypeId v1) st)
+                                 (getTypeName (varTypeId v2) st)
   in do
     (evaledL, st') <- evalExpr lhs st
     (evaledR, st'') <- evalExpr rhs st'
@@ -169,14 +156,14 @@ evalFunction func invokeP p st = do
 -- TODO: make sure it lays next to assgnStructField.
 getStructField :: (TypeId, Struct) -> [String] -> PPos -> State -> Error Var
 getStructField (tId, struct) [n] p st =
-  errorFromMaybe (EDNoMember p (getTypeNameForED tId st) n) $
+  errorFromMaybe (EDNoMember p (getTypeName tId st) n) $
     Map.lookup n struct
 
 getStructField (tId, struct) (n:ns) p st = do
   strctDescr <- getTypeDescr tId p st
-  destTypeId <- errorFromMaybe (EDNoMember p (getTypeNameForED tId st) n) $
+  destTypeId <- errorFromMaybe (EDNoMember p (getTypeName tId st) n) $
                 Map.lookup n $ strctFields strctDescr
-  destVar <- errorFromMaybe (EDNoMember p (getTypeNameForED tId st) n) $
+  destVar <- errorFromMaybe (EDNoMember p (getTypeName tId st) n) $
              Map.lookup n struct
   destStruct <- snd <$> asStruct p destVar
 
@@ -197,9 +184,9 @@ getBindVars (BdDefault p idents) st = fromMaybeList <$>
     fromMaybeList (Just l) = Just $ Set.fromList l
     fromMaybeList Nothing = Nothing
 
-enforceNoDivByZero :: Int -> Int -> PPos -> Error ()
-enforceNoDivByZero _ 0 p = Fail $ EDDivideByZero p
-enforceNoDivByZero _ _ _ = Ok ()
+enforce0div :: Int -> Int -> PPos -> Error ()
+enforce0div _ 0 p = Fail $ EDDivideByZero p
+enforce0div _ _ _ = Ok ()
 
 enfoceBindedVarsAreInBlock :: String -> Func -> PPos -> State -> Error ()
 enfoceBindedVarsAreInBlock fname func p st = do
@@ -233,27 +220,27 @@ evalExpr (EBool _ boolVal) st = do
   let bl = case boolVal of { BTrue _ -> True; BFalse _ -> False }
   return (VBool bl, st)
 
-evalExpr (EPlus _ lhs rhs) st = evalBinExpr varToInt (+) VInt lhs rhs Nothing st
-evalExpr (EMinus _ lhs rhs) st = evalBinExpr varToInt (-) VInt lhs rhs Nothing st
-evalExpr (ETimes _ lhs rhs) st = evalBinExpr varToInt (*) VInt lhs rhs Nothing st
-evalExpr (EDiv _ lhs rhs) st = evalBinExpr varToInt div VInt lhs rhs (Just enforceNoDivByZero) st
-evalExpr (EMod _ lhs rhs) st = evalBinExpr varToInt mod VInt lhs rhs (Just enforceNoDivByZero) st
-evalExpr (EPow _ lhs rhs) st = evalBinExpr varToInt (^) VInt lhs rhs Nothing st
-evalExpr (EGeq _ lhs rhs) st = evalBinExpr varToInt (>=) VBool lhs rhs Nothing st
-evalExpr (ELeq _ lhs rhs) st = evalBinExpr varToInt (<=) VBool lhs rhs Nothing st
-evalExpr (EGt _ lhs rhs) st = evalBinExpr varToInt (>) VBool lhs rhs Nothing st
-evalExpr (ELt _ lhs rhs) st = evalBinExpr varToInt (<) VBool lhs rhs Nothing st
-evalExpr (ELor _ lhs rhs) st = evalBinExpr varToBool (||) VBool lhs rhs Nothing st
-evalExpr (ELand _ lhs rhs) st = evalBinExpr varToBool (&&) VBool lhs rhs Nothing st
-evalExpr (EXor _ lhs rhs) st = evalBinExpr varToBool xor VBool lhs rhs Nothing st
-evalExpr (ECat _ lhs rhs) st = evalBinExpr varToString (++) VString lhs rhs Nothing st
+evalExpr (EPlus _ lhs rhs) st = evalBinExpr asInt (+) VInt lhs rhs Nothing st
+evalExpr (EMinus _ lhs rhs) st = evalBinExpr asInt (-) VInt lhs rhs Nothing st
+evalExpr (ETimes _ lhs rhs) st = evalBinExpr asInt (*) VInt lhs rhs Nothing st
+evalExpr (EDiv _ lhs rhs) st = evalBinExpr asInt div VInt lhs rhs (Just enforce0div) st
+evalExpr (EMod _ lhs rhs) st = evalBinExpr asInt mod VInt lhs rhs (Just enforce0div) st
+evalExpr (EPow _ lhs rhs) st = evalBinExpr asInt (^) VInt lhs rhs Nothing st
+evalExpr (EGeq _ lhs rhs) st = evalBinExpr asInt (>=) VBool lhs rhs Nothing st
+evalExpr (ELeq _ lhs rhs) st = evalBinExpr asInt (<=) VBool lhs rhs Nothing st
+evalExpr (EGt _ lhs rhs) st = evalBinExpr asInt (>) VBool lhs rhs Nothing st
+evalExpr (ELt _ lhs rhs) st = evalBinExpr asInt (<) VBool lhs rhs Nothing st
+evalExpr (ELor _ lhs rhs) st = evalBinExpr asBool (||) VBool lhs rhs Nothing st
+evalExpr (ELand _ lhs rhs) st = evalBinExpr asBool (&&) VBool lhs rhs Nothing st
+evalExpr (EXor _ lhs rhs) st = evalBinExpr asBool xor VBool lhs rhs Nothing st
+evalExpr (ECat _ lhs rhs) st = evalBinExpr asString (++) VString lhs rhs Nothing st
 
 -- Operators '==' and '!=' works with any builtin type.
 evalExpr (EEq _ lhs rhs) st = evalEqualExpr False lhs rhs st
 evalExpr (ENeq _ lhs rhs) st = evalEqualExpr True lhs rhs st
 
 evalExpr (ELValue p (LValueVar _ (Ident vname))) st = toErrorT $
-  (, st) <$> snd <$> getVar vname p st
+  (, st) . snd <$> getVar vname p st
 
 evalExpr (ELValue p lv@LValueMemb {}) st = do
   (members, (_, var)) <- toErrorT $ lvalueMem lv st
@@ -304,6 +291,32 @@ evalExpr (EIife p (FDDefault _ params bind funRet stmts) invkParams) st = do
   bindV <- toErrorT $ getBindVars bind st'
   scope2 (returnHndl . evalFunction func invokeParams p) bindV st'
 
+evalExpr (EScan _ types) st = do
+  toErrorT $ mapM_ enforceIsBultinType types
+  line <- lift $ catchIOError getLine (\_ -> return [])
+  let failedParse t l = (False, (False, toUninitialized t) : l)
+      vars = reverse $ snd $
+             foldl' (\(parsedSoFar, l) (t, s) ->
+                        if parsedSoFar
+                        then maybe (failedParse t l)
+                             ((True, ) . flip (:) l <$> (True, ))
+                             (s >>= parse t)
+                        else failedParse t l)
+                    (True, [])
+                    (zipMaybe types (words line))
+      parsedSuccessfully = countIf fst vars
+
+  return (VTuple $ VInt parsedSuccessfully : map snd vars, st)
+  where
+    parse :: Type PPos -> String -> Maybe Var
+    parse (TInt _) s = VInt <$> (readMaybe :: String -> Maybe Int) s
+    parse (TBool _) s = VBool <$> (readMaybe :: String -> Maybe Bool) s
+    parse (TString _) s = Just $ VString s
+    parse _ _ = undefined -- Safe, because we've checked for these types before
+
+    toUninitialized :: Type PPos -> Var
+    toUninitialized t = VUninitialized $ nofail $ getTypeId t st
+
 evalVarDeclImpl :: VarSpec PPos -> String -> Var -> PPos -> State -> Error State
 evalVarDeclImpl spec vname var p st = snd <$>
   createVar vname (varSpecReadOnly spec) var p st
@@ -336,7 +349,7 @@ evalVarDecl (DVDeclDeduce p (Ident vname) spec expr) st = do
 evalIfStmtImpl :: Expr PPos -> Stmt PPos -> Maybe (Stmt PPos) -> State -> ErrorT IO State
 evalIfStmtImpl expr stmt elseStmt st = do
   (v, st') <- evalExpr expr st
-  cond <- toErrorT $ varToBool st (getPos expr) v
+  cond <- toErrorT $ asBool st (getPos expr) v
   lift $ putStrLn $ "evaluated bool: " ++ show cond
   if cond
     then evalStmt stmt st'
@@ -347,7 +360,7 @@ evalIfStmtImpl expr stmt elseStmt st = do
 evalLoopImpl :: Expr PPos -> Stmt PPos -> Maybe (Stmt PPos) -> State -> ErrorT IO State
 evalLoopImpl expr stmt incStmt st = do
   (v, st') <- evalExpr expr st
-  cond <- toErrorT $ varToBool st' (getPos expr) v
+  cond <- toErrorT $ asBool st' (getPos expr) v
   lift $ putStrLn $ "evaluated loop condition: " ++ show cond
   if cond
     then do
@@ -421,13 +434,14 @@ funcToParams (FPEmpty _) _ = Ok []
 funcToParams (FPList _ declParams) st =
   mapM (\(DDeclBasic _ (Ident n) t) -> (n, ) <$> getTypeId t st) declParams
 
-tupleAsgnOrDeclImpl :: Bool -> [IdentOrIgnr PPos] -> [Var] -> PPos -> State -> ErrorT IO State
+tupleAsgnOrDeclImpl :: Bool -> [IdentOrIgnr PPos] -> [Var] -> PPos -> State
+                    -> ErrorT IO State
 tupleAsgnOrDeclImpl decl targs vs p st = do
   zipped <- toErrorT
             $ errorFromMaybe (EDTupleNumbersDontMatch p (length targs) (length vs))
             $ tryZip targs vs
 
-  let action = if decl then evalVarDeclImpl (VSNone Nothing) else evalVarAsgnImpl -- TODO?
+  let action = if decl then evalVarDeclImpl (VSNone Nothing) else evalVarAsgnImpl
   toErrorT $ foldrM (\(tar, v) s ->
                        case tar of
                          IOIIgnore _ -> Ok s
@@ -460,16 +474,16 @@ lvalueMem lv st =
 assgnStructField :: (TypeId, Struct) -> [String] -> Var -> PPos -> State -> Error Struct
 assgnStructField (tId, struct) [n] asgnVal p st = do
   strctDescr <- getTypeDescr tId p st
-  destTypeId <- errorFromMaybe (EDNoMember p (getTypeNameForED tId st) n) $
+  destTypeId <- errorFromMaybe (EDNoMember p (getTypeName tId st) n) $
                 Map.lookup n $ strctFields strctDescr
   enforceType asgnVal destTypeId p st -- check type of the member
   return $ Map.insert n asgnVal struct
 
 assgnStructField (tId, struct) (n:ns) asgnVal p st = do
   strctDescr <- getTypeDescr tId p st
-  destTypeId <- errorFromMaybe (EDNoMember p (getTypeNameForED tId st) n) $
+  destTypeId <- errorFromMaybe (EDNoMember p (getTypeName tId st) n) $
                 Map.lookup n $ strctFields strctDescr
-  destVar <- errorFromMaybe (EDNoMember p (getTypeNameForED tId st) n) $
+  destVar <- errorFromMaybe (EDNoMember p (getTypeName tId st) n) $
              Map.lookup n struct
   destStruct <- snd <$> asStruct p destVar
   modified <- assgnStructField (destTypeId, destStruct) ns asgnVal p st
@@ -486,7 +500,7 @@ evalStmt (SBlock _ bind stmts) st = do
 
 evalStmt (SAssert p expr) st = do
   (var, st') <- evalExpr expr st
-  bool <- toErrorT $ varToBool st' (getPos expr) var
+  bool <- toErrorT $ asBool st' (getPos expr) var
   if not bool
     then toErrorT $ Fail $ EDAssertFail p
     else return st'
@@ -496,31 +510,6 @@ evalStmt (SPrint _ exprs) st = do
   lift $ hFlush stdout -- Just in case
   return st'
 
-evalStmt (SScan p types) st = do
-  toErrorT $ mapM_ enforceIsBultinType types
-  line <- lift $ catchIOError getLine (\_ -> return [])
-  let failedParse t l = (False, (False, toUninitialized t) : l)
-      vars = reverse $ snd $
-             foldl' (\(parsedSoFar, l) (t, s) ->
-                        if parsedSoFar
-                          then maybe (failedParse t l)
-                               ((True, ) . flip (:) l <$> (True, )) (s >>= parse t)
-                          else failedParse t l)
-                    (True, [])
-                    (zipMaybe types (words line))
-      parsedSuccessfully = countIf fst vars
-
-  toErrorT $ Flow (FRReturn p (VTuple $ VInt parsedSuccessfully : map snd vars)) st
-  where
-    parse :: Type PPos -> String -> Maybe Var
-    parse (TInt _) s = VInt <$> (readMaybe :: String -> Maybe Int) s
-    parse (TBool _) s = VBool <$> (readMaybe :: String -> Maybe Bool) s
-    parse (TString _) s = Just $ VString s
-    parse _ _ = undefined -- Safe, because we've checked for these types before
-
-    toUninitialized :: Type PPos -> Var
-    toUninitialized t = VUninitialized $ nofail $ getTypeId t st
-
 evalStmt (SIf _ expr stmt) st = scope (evalIfStmtImpl expr stmt Nothing) Nothing st
 evalStmt (SIfElse _ expr stmt elStmt) st = scope (evalIfStmtImpl expr stmt (Just elStmt)) Nothing st
 
@@ -529,10 +518,10 @@ evalStmt (SWhile _ expr stmt) st = scope (catchBreak . evalLoopImpl expr stmt No
 
 evalStmt e@(SFor _ (Ident iterName) eStart eEnd stmt) st = do
   (vStart, st') <- evalExpr eStart st
-  vStartConv <- toErrorT $ varToInt st' (getPos eStart) vStart
+  vStartConv <- toErrorT $ asInt st' (getPos eStart) vStart
 
   (vEnd, st'') <- evalExpr eEnd st'
-  vEndConv <- toErrorT $ varToInt st'' (getPos eEnd) vEnd
+  vEndConv <- toErrorT $ asInt st'' (getPos eEnd) vEnd
 
   lift $ putStrLn $ "Loop goes from " ++ show vStartConv ++ " to " ++ show vEndConv
 
@@ -584,12 +573,12 @@ evalStmt (SIgnore _ (EOTTuple _ exprs)) st = snd <$> evalExprsListr exprs st
 
 evalStmt (STDecl p (TTar _ targs) (EOTRegular _ expr)) st = do
   (var, st') <- evalExpr expr st
-  vs <- toErrorT $ varToTuple st' p var
+  vs <- toErrorT $ asTuple st' p var
   tupleDeclImpl targs vs p st'
 
 evalStmt (STAssign p (TTar _ targs) (EOTRegular _ expr)) st = do
   (var, st') <- evalExpr expr st
-  vs <- toErrorT $ varToTuple st' p var
+  vs <- toErrorT $ asTuple st' p var
   tupleAsgnImpl targs vs p st'
 
 evalStmt (SAssign p lv expr) st = do
