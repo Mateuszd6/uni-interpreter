@@ -5,6 +5,7 @@
 -- TODO: Scan docs.
 -- TODO: Changes docs.
 -- TODO: Fix the issue with *unknown* type.
+-- TODO: Read only params in 'bad' tests.
 
 import Control.Monad (foldM, foldM_)
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
@@ -144,8 +145,8 @@ evalFunction func invokeP p st = do
         Nothing -> bindVars st
 
   st' <- toErrorT $
-    foldrM (\(par, (pname, tId)) s -> enforceType par tId p s >>
-                                      snd <$> createVar pname False par p s)
+    foldrM (\(par, (pname, spec, tId)) s -> enforceType par tId p s >>
+                                            snd <$> createVar pname (varSpecReadOnly spec) par p s)
            st { scopeCnt = scopeCnt st + 1,
                 stateScope = funcScope func,
                 bindVars = foo } $
@@ -334,13 +335,13 @@ evalExpr (EScan _ types) st = do
     toUninitialized :: Type PPos -> Var
     toUninitialized t = VUninitialized $ nofail $ getTypeId t st
 
+varSpecReadOnly :: VarSpec a -> Bool
+varSpecReadOnly (VSReadOnly _) = True
+varSpecReadOnly _ = False
+
 evalVarDeclImpl :: VarSpec PPos -> String -> Var -> PPos -> State -> Error State
 evalVarDeclImpl spec vname var p st = snd <$>
   createVar vname (varSpecReadOnly spec) var p st
-  where
-    varSpecReadOnly :: VarSpec a -> Bool
-    varSpecReadOnly (VSReadOnly _) = True
-    varSpecReadOnly _ = False
 
 evalVarAsgnImpl :: String -> Var -> PPos -> State -> Error State
 evalVarAsgnImpl vname asgnVal p st = do
@@ -449,7 +450,7 @@ funcReturnsVoid _ = False
 funcToParams :: FunParams PPos -> State -> Error [Param]
 funcToParams (FPEmpty _) _ = Ok []
 funcToParams (FPList _ declParams) st =
-  mapM (\(DDeclBasic _ (Ident n) t) -> (n, ) <$> getTypeId t st) declParams
+  mapM (\(DDeclBasic _ (Ident n) spec t) -> (n, spec, ) <$> getTypeId t st) declParams
 
 tupleAsgnOrDeclImpl :: Bool -> [IdentOrIgnr PPos] -> [Var] -> PPos -> State
                     -> ErrorT IO State

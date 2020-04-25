@@ -1,3 +1,10 @@
+foo :: (x! : int, y : int) {
+    y = 3;
+    x = 5;
+}
+
+foo(1, 2);
+
 void :: struct {
     x : int;
     y : int;

@@ -3,8 +3,8 @@ isPrime :: (n : int) -> bool {
         return false;
 
     i := 2;
-    while ((i * i) <= n) { // TODO: remove brackets once fixed.
-        if ((n % i) == 0)
+    while (i * i <= n) {
+        if (n % i == 0)
             return false;
         else
             i = i + 1;

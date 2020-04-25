@@ -10,7 +10,7 @@ for i in 'good' 'bad'; do
     cd $i
     for f in *.prg; do
         echo -n "  Testing" $f
-        # TODO: make sure stdout is empty and error msges are pritned to stderr
+        # TODO: make sure stdout is empty
         ../../interpreter $f > /dev/null 2> ../test.err
         EXIT_CODE=$?
         diff > ../temp.diff                                                           \

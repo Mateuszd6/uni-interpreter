@@ -43,7 +43,7 @@ instance Show Var where
 data StructDef = StructDef { strctName :: String, strctFields :: Map.Map String TypeId }
   deriving (Show)
 
-type Param = (String, TypeId)
+type Param = (String, VarSpec PPos, TypeId)
 
 -- Could use Either, but this is much more readable in pattern matching.
 data FRetT
@@ -218,7 +218,7 @@ createFunc name body params ret bind p st@(State c str@(Store _ _ _  _ next _) _
       func = Func next body ret params bind scp' c
   in do
     checkIfAlreadyDefined name fScopeN (funcsScope st) (funcsStore st) c (EDFuncAlreadyDeclared p)
-    checkIfParamRepeated (map fst params) (flip EDFuncArgRepeated p)
+    checkIfParamRepeated (map (\(x, _, _) -> x) params) (flip EDFuncArgRepeated p)
     return (next, st{
                stateStore = str{ storeFuncs = Map.insert next func (funcsStore st),
                                  nextFuncId = next + 1 },
