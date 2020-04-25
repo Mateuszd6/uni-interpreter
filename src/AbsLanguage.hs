@@ -196,12 +196,12 @@ instance Functor InvokeExprList where
     fmap f x = case x of
         IELDefault a exprs -> IELDefault (f a) (map (fmap f) exprs)
         IELEmpty a -> IELEmpty (f a)
-data DeclFunParam a = DDeclBasic a Ident (Type a)
+data DeclFunParam a = DDeclBasic a Ident (VarSpec a) (Type a)
   deriving (Eq, Ord, Show, Read)
 
 instance Functor DeclFunParam where
     fmap f x = case x of
-        DDeclBasic a ident type_ -> DDeclBasic (f a) ident (fmap f type_)
+        DDeclBasic a ident varspec type_ -> DDeclBasic (f a) ident (fmap f varspec) (fmap f type_)
 data ReturnExpr a = RExNone a | RExRegular a (ExprOrTuple a)
   deriving (Eq, Ord, Show, Read)
 

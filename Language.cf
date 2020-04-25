@@ -113,7 +113,7 @@ BdNone.    Bind ::= ; -- No 'bind' means the function can refer to any scope.
 IELDefault. InvokeExprList ::= "(" [Expr] ")" ;
 IELEmpty.   InvokeExprList ::= "(" ")" ;
 
-DDeclBasic. DeclFunParam  ::= Ident ":" Type ;
+DDeclBasic. DeclFunParam  ::= Ident VarSpec ":" Type ;
 (:[]).     [DeclFunParam] ::= DeclFunParam ;
 (:).       [DeclFunParam] ::= DeclFunParam "," [DeclFunParam] ;
 
