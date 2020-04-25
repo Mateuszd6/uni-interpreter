@@ -1,5 +1,5 @@
-#+TITLE: JPP - language specification
 #+AUTHOR: Mateusz Dudziński
+#+TITLE: JPP - language specification
 #+EMAIL: mateusz.dudzinski@students.mimuw.edu.pl
 #+OPTIONS: toc:nil
 #+OPTIONS: num:nil
@@ -7,6 +7,19 @@
 #+LATEX_HEADER: \usepackage[margin=0.5in]{geometry}
 #+latex_header: \usepackage{minted}
 #+latex_header: \usepackage{xcolor}
+
+* Changes from the previous version
+  + Add readonly variables and func params, as I've realized they are
+    obligatory in the 15-points milestone.
+  + Don't use builtin functions - they were causing too much
+    trouble. Use pseudo-statement print and scan function (which
+    accept any number of args).
+  + Added 'assert' function that helps when testing.
+  + Removed 'die' function, because it is basically 'assert(false)'
+  + Change some operator precedence because things like: if (1 + 3
+    >= 4) dind't parse. Now they do.
+  + TODO: Something else?
+
 
 The following lsanguage is an imperative, statically typed, mostly-C-like
 language, featuring with user-defined structs, local/unnamed functions with
