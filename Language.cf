@@ -8,28 +8,29 @@ Prog.       Program ::= [Stmt] ;
 LValueVar.  LValue ::= Ident ;
 LValueMemb. LValue ::= LValue "." Ident ;
 
-EPlus.   Expr ::= Expr "+" Expr2 ;
-EMinus.  Expr ::= Expr "-" Expr2 ;
-ECat.    Expr ::= Expr "@" Expr2 ;
+ELor.    Expr ::= Expr "||" Expr1 ;
+ELand.   Expr ::= Expr "&&" Expr1 ;
+EXor.    Expr ::= Expr "^^" Expr1 ;
 
-ETimes.  Expr2 ::= Expr2 "*" Expr3 ;
-EDiv.    Expr2 ::= Expr2 "/" Expr3 ;
-EMod.    Expr2 ::= Expr2 "%" Expr3 ;
+EEq.     Expr1 ::= Expr1 "==" Expr2 ;
+ENeq.    Expr1 ::= Expr1 "!=" Expr2 ;
+EGeq.    Expr1 ::= Expr1 ">=" Expr2 ;
+ELeq.    Expr1 ::= Expr1 "<=" Expr2 ;
+EGt.     Expr1 ::= Expr1 ">" Expr2 ;
+ELt.     Expr1 ::= Expr1 "<" Expr2 ;
 
-EPow.    Expr3 ::= Expr3 "^" Expr4 ;
+EPlus.   Expr2 ::= Expr2 "+" Expr3 ;
+EMinus.  Expr2 ::= Expr2 "-" Expr3 ;
+ECat.    Expr2 ::= Expr2 "@" Expr3 ;
 
-EEq.     Expr4 ::= Expr4 "==" Expr5 ;
-ENeq.    Expr4 ::= Expr4 "!=" Expr5 ;
-EGeq.    Expr4 ::= Expr4 ">=" Expr5 ;
-ELeq.    Expr4 ::= Expr4 "<=" Expr5 ;
-EGt.     Expr4 ::= Expr4 ">"  Expr5 ;
-ELt.     Expr4 ::= Expr4 "<"  Expr5 ;
+ETimes.  Expr3 ::= Expr3 "*" Expr4 ;
+EDiv.    Expr3 ::= Expr3 "/" Expr4 ;
+EMod.    Expr3 ::= Expr3 "%" Expr4 ;
 
-ELor.    Expr5 ::= Expr5 "||" Expr6 ;
-ELand.   Expr5 ::= Expr5 "&&" Expr6 ;
-EXor.    Expr5 ::= Expr5 "^^" Expr6 ;
+EPow.    Expr4 ::= Expr4 "^" Expr5 ;
 
 EFnCall. Expr6 ::= Ident InvokeExprList ;
+EScan.   Expr6 ::= "scan" "(" [Type] ")" ;
 EIife.   Expr6 ::= FunDecl InvokeExprList ; -- IIFE (more in docs).
 
 ELValue. Expr7 ::= LValue ;
@@ -67,7 +68,6 @@ SBreak.  Stmt1 ::= "break" ";" ;
 SCont.   Stmt1 ::= "continue" ";" ;
 SAssert. Stmt1 ::= "assert" ":" Expr ";" ;
 SPrint.  Stmt1 ::= "print" "(" [Expr] ")" ";" ;
-SScan.   Stmt1 ::= "scan" "(" [Type] ")" ";" ;
 SBlock.  Stmt1 ::= Bind "{" [Stmt] "}" ;
 _.       Stmt1 ::= Stmt1 ";" ; -- Accept trailing semicolons.
 _.       Stmt  ::= Stmt1 ;

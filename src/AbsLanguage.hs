@@ -22,23 +22,24 @@ instance Functor LValue where
         LValueVar a ident -> LValueVar (f a) ident
         LValueMemb a lvalue ident -> LValueMemb (f a) (fmap f lvalue) ident
 data Expr a
-    = EPlus a (Expr a) (Expr a)
-    | EMinus a (Expr a) (Expr a)
-    | ECat a (Expr a) (Expr a)
-    | ETimes a (Expr a) (Expr a)
-    | EDiv a (Expr a) (Expr a)
-    | EMod a (Expr a) (Expr a)
-    | EPow a (Expr a) (Expr a)
+    = ELor a (Expr a) (Expr a)
+    | ELand a (Expr a) (Expr a)
+    | EXor a (Expr a) (Expr a)
     | EEq a (Expr a) (Expr a)
     | ENeq a (Expr a) (Expr a)
     | EGeq a (Expr a) (Expr a)
     | ELeq a (Expr a) (Expr a)
     | EGt a (Expr a) (Expr a)
     | ELt a (Expr a) (Expr a)
-    | ELor a (Expr a) (Expr a)
-    | ELand a (Expr a) (Expr a)
-    | EXor a (Expr a) (Expr a)
+    | EPlus a (Expr a) (Expr a)
+    | EMinus a (Expr a) (Expr a)
+    | ECat a (Expr a) (Expr a)
+    | ETimes a (Expr a) (Expr a)
+    | EDiv a (Expr a) (Expr a)
+    | EMod a (Expr a) (Expr a)
+    | EPow a (Expr a) (Expr a)
     | EFnCall a Ident (InvokeExprList a)
+    | EScan a [Type a]
     | EIife a (FunDecl a) (InvokeExprList a)
     | ELValue a (LValue a)
     | ENew a Ident
@@ -49,6 +50,15 @@ data Expr a
 
 instance Functor Expr where
     fmap f x = case x of
+        ELor a expr1 expr2 -> ELor (f a) (fmap f expr1) (fmap f expr2)
+        ELand a expr1 expr2 -> ELand (f a) (fmap f expr1) (fmap f expr2)
+        EXor a expr1 expr2 -> EXor (f a) (fmap f expr1) (fmap f expr2)
+        EEq a expr1 expr2 -> EEq (f a) (fmap f expr1) (fmap f expr2)
+        ENeq a expr1 expr2 -> ENeq (f a) (fmap f expr1) (fmap f expr2)
+        EGeq a expr1 expr2 -> EGeq (f a) (fmap f expr1) (fmap f expr2)
+        ELeq a expr1 expr2 -> ELeq (f a) (fmap f expr1) (fmap f expr2)
+        EGt a expr1 expr2 -> EGt (f a) (fmap f expr1) (fmap f expr2)
+        ELt a expr1 expr2 -> ELt (f a) (fmap f expr1) (fmap f expr2)
         EPlus a expr1 expr2 -> EPlus (f a) (fmap f expr1) (fmap f expr2)
         EMinus a expr1 expr2 -> EMinus (f a) (fmap f expr1) (fmap f expr2)
         ECat a expr1 expr2 -> ECat (f a) (fmap f expr1) (fmap f expr2)
@@ -56,16 +66,8 @@ instance Functor Expr where
         EDiv a expr1 expr2 -> EDiv (f a) (fmap f expr1) (fmap f expr2)
         EMod a expr1 expr2 -> EMod (f a) (fmap f expr1) (fmap f expr2)
         EPow a expr1 expr2 -> EPow (f a) (fmap f expr1) (fmap f expr2)
-        EEq a expr1 expr2 -> EEq (f a) (fmap f expr1) (fmap f expr2)
-        ENeq a expr1 expr2 -> ENeq (f a) (fmap f expr1) (fmap f expr2)
-        EGeq a expr1 expr2 -> EGeq (f a) (fmap f expr1) (fmap f expr2)
-        ELeq a expr1 expr2 -> ELeq (f a) (fmap f expr1) (fmap f expr2)
-        EGt a expr1 expr2 -> EGt (f a) (fmap f expr1) (fmap f expr2)
-        ELt a expr1 expr2 -> ELt (f a) (fmap f expr1) (fmap f expr2)
-        ELor a expr1 expr2 -> ELor (f a) (fmap f expr1) (fmap f expr2)
-        ELand a expr1 expr2 -> ELand (f a) (fmap f expr1) (fmap f expr2)
-        EXor a expr1 expr2 -> EXor (f a) (fmap f expr1) (fmap f expr2)
         EFnCall a ident invokeexprlist -> EFnCall (f a) ident (fmap f invokeexprlist)
+        EScan a types -> EScan (f a) (map (fmap f) types)
         EIife a fundecl invokeexprlist -> EIife (f a) (fmap f fundecl) (fmap f invokeexprlist)
         ELValue a lvalue -> ELValue (f a) (fmap f lvalue)
         ENew a ident -> ENew (f a) ident
@@ -97,7 +99,6 @@ data Stmt a
     | SCont a
     | SAssert a (Expr a)
     | SPrint a [Expr a]
-    | SScan a [Type a]
     | SBlock a (Bind a) [Stmt a]
   deriving (Eq, Ord, Show, Read)
 
@@ -120,7 +121,6 @@ instance Functor Stmt where
         SCont a -> SCont (f a)
         SAssert a expr -> SAssert (f a) (fmap f expr)
         SPrint a exprs -> SPrint (f a) (map (fmap f) exprs)
-        SScan a types -> SScan (f a) (map (fmap f) types)
         SBlock a bind stmts -> SBlock (f a) (fmap f bind) (map (fmap f) stmts)
 data TupleTarget a = TTar a [IdentOrIgnr a]
   deriving (Eq, Ord, Show, Read)
