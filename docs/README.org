@@ -14,10 +14,9 @@
   + Don't use builtin functions - they were causing too much
     trouble. Use pseudo-statement print and scan function (which
     accept any number of args).
-  + Added 'assert' function that helps when testing.
-  + Removed 'die' function, because it is basically 'assert(false)'
-  + Change some operator precedence because things like: if (1 + 3
-    >= 4) dind't parse. Now they do.
+  + Added \texttt{assert} function that helps when testing.
+  + Removed \texttt{die} function, because it is basically \texttt{assert(false)}
+  + Change some operator precedence because things like: \texttt{if (1 + 3 >= 4)} dind't parse. Now they do.
   + TODO: Something else?
 
 
@@ -69,6 +68,13 @@ Asignments however:
   foo = 4;
 #+END_SRC
 ... don't have this token and are simple C-like assignments.
+
+*** Also read-only variables are supported:
+#+BEGIN_SRC C++
+  foo! := 4; // Foo is now read-only.
+  foo = 4; // Would cause an error.
+#+END_SRC
+
 
 ** Expressions
 
@@ -216,7 +222,8 @@ anyway.
 
 *** Super boring example, regular named (global) function.
 #+BEGIN_SRC C++
-  exmaple1 :: (x : int, y : int) -> int
+  // Function parameters also support read-only attribute. X can't be changed inside func body.
+  exmaple1 :: (x! : int, y : int) -> int
   {
       return y * x;
   }
@@ -339,7 +346,7 @@ the same as 'named function', but without the name). Which is not what most
 languages offer (like in C++, lambdas have everything differently than regular
 functions).
 
-*  Tuples:
+* Tuples:
 
 Tuple syntax are (exclusively) square brackets. But the amount of stuff that
 user can do to a tuple is very limited (by design). So there is no nested
