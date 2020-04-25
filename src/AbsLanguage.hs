@@ -97,6 +97,7 @@ data Stmt a
     | SCont a
     | SAssert a (Expr a)
     | SPrint a [Expr a]
+    | SScan a [Type a]
     | SBlock a (Bind a) [Stmt a]
   deriving (Eq, Ord, Show, Read)
 
@@ -119,6 +120,7 @@ instance Functor Stmt where
         SCont a -> SCont (f a)
         SAssert a expr -> SAssert (f a) (fmap f expr)
         SPrint a exprs -> SPrint (f a) (map (fmap f) exprs)
+        SScan a types -> SScan (f a) (map (fmap f) types)
         SBlock a bind stmts -> SBlock (f a) (fmap f bind) (map (fmap f) stmts)
 data TupleTarget a = TTar a [IdentOrIgnr a]
   deriving (Eq, Ord, Show, Read)

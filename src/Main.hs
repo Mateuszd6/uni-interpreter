@@ -5,11 +5,14 @@
 -- TODO: Builtin scanf function.
 -- TODO: Fix the issue with *unknown* type.
 
-import Data.Bits (xor)
-import System.Environment (getArgs)
-import System.Exit (exitFailure, exitSuccess)
 import Control.Monad (foldM, foldM_)
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
+import Data.Bits (xor)
+import Data.Foldable (foldl')
+import System.IO.Error (catchIOError)
+import System.Environment (getArgs)
+import System.Exit (exitFailure, exitSuccess)
+import Text.Read (readMaybe)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
@@ -538,6 +541,37 @@ evalStmt (SPrint _ exprs) st =
   in
     foldM (\s ex -> evalExpr ex s >>= lift . printFstRetSnd) st exprs
 
+evalStmt (SScan _ types) st = do
+  toErrorT $ mapM_ enforceIsBultinType types
+  line <- lift $ catchIOError getLine (\_ -> return [])
+  let failedParse t l = (False, (False, toUninitialized t) : l)
+      vars = reverse $ snd $
+             foldl' (\(parsedSoFar, l) (s, t) ->
+                        if parsedSoFar
+                          then maybe (failedParse t l)
+                               ((True,) . flip (:) l <$> (True,)) (parse t s)
+                          else failedParse t l)
+                    (True, [])
+                    (zip (words line) types)
+      parsedSuccessfully = countIf fst vars
+  lift $ print $ VInt parsedSuccessfully : map snd vars
+  return st
+  where
+    -- TODO: Move to common?
+    countIfImpl :: (a -> Bool) -> [a] -> Int -> Int
+    countIfImpl pr (x:xs) acc = if pr x then countIfImpl pr xs (acc + 1) else acc
+    countIfImpl _ [] acc = acc
+    countIf :: (a -> Bool) -> [a] -> Int
+    countIf pr l = countIfImpl pr l 0
+
+    parse :: Type PPos -> String -> Maybe Var
+    parse (TInt _) s = VInt <$> (readMaybe :: String -> Maybe Int) s
+    parse (TBool _) s = VBool <$> (readMaybe :: String -> Maybe Bool) s
+    parse (TString _) s = Just $ VString s
+    parse _ _ = undefined -- Safe, because we've checked for these types before
+
+    toUninitialized :: Type PPos -> Var
+    toUninitialized t = VUninitialized $ nofail $ getTypeId t st
 
 evalStmt (SIf _ expr stmt) st = scope (evalIfStmtImpl expr stmt Nothing) Nothing st
 evalStmt (SIfElse _ expr stmt elStmt) st = scope (evalIfStmtImpl expr stmt (Just elStmt)) Nothing st
@@ -662,8 +696,21 @@ run fname pText = do
     -- ]
   -- exitFailure
 
+
+
 main :: IO ()
 main = do -- TODO: Support actual arugments.
+  -- putStr $ "Enter a number... "
+  -- hFlush stdout
+  -- n <- (readIO :: String -> IO Int) =<< getLine
+  -- putStrLn $ "Got: " ++ show n
+  -- hFlush stdout
+  -- putStr $ "Enter anohter number..."
+  -- hFlush stdout
+  -- n' <- (readIO :: String -> IO Int) =<< getLine
+  -- putStrLn $ "Got: " ++ show n'
+  -- hFlush stdout
+
   args <- getArgs
   case args of
     [] -> getContents >>= run "*stdin*"

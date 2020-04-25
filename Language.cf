@@ -67,6 +67,7 @@ SBreak.  Stmt1 ::= "break" ";" ;
 SCont.   Stmt1 ::= "continue" ";" ;
 SAssert. Stmt1 ::= "assert" ":" Expr ";" ;
 SPrint.  Stmt1 ::= "print" "(" [Expr] ")" ";" ;
+SScan.   Stmt1 ::= "scan" "(" [Type] ")" ";" ;
 SBlock.  Stmt1 ::= Bind "{" [Stmt] "}" ;
 _.       Stmt1 ::= Stmt1 ";" ; -- Accept trailing semicolons.
 _.       Stmt  ::= Stmt1 ;

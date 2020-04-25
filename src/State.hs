@@ -260,6 +260,12 @@ getTypeStruct name p st = errorFromMaybe (EDTypeNotFound name p) $
     strct <- Map.lookup tId (typesStore st)
     return (tId, strct)
 
+enforceIsBultinType :: Type PPos -> Error ()
+enforceIsBultinType (TInt _) = Ok ()
+enforceIsBultinType (TBool _) = Ok ()
+enforceIsBultinType (TString _) = Ok ()
+enforceIsBultinType (TUser p (Ident n)) = Fail $ EDScanError n p
+
 -- This function does not perform the type check!!
 setVar :: VarId -> Var -> PPos -> State -> Error State
 setVar vId val p s@(State _ str _ _) = do
@@ -276,7 +282,7 @@ getTypeId (TBool _) _ = Ok 2
 getTypeId (TString _) _ = Ok 3
 getTypeId (TUser p (Ident tname)) st =
   errorFromMaybe (EDTypeNotFound tname p) $
-  Map.lookup tname $ typesScope st
+  Map.lookup tname (typesScope st)
 
 getTypeDescr :: TypeId -> PPos -> State -> Error StructDef
 getTypeDescr tId p st = errorFromMaybe (EDVariableNotStruct p) $
@@ -332,6 +338,10 @@ scope2 fun bind st =
   -- (x, st') <- fun st { scopeCnt = scopeCnt st + 1 }
   -- return (x, st'{ stateScope = stateScope st })
 
+nofail :: Show a => Error a -> a
+nofail (Ok x) = x
+nofail e = error $ "Unexpected error: " ++ show e
+
 data ErrorDetail
   = EDVarNotFound String PPos
   | EDVarNotInitialized PPos
@@ -364,6 +374,8 @@ data ErrorDetail
   | EDStructArgRepeated String PPos
   | EDBind String PPos
   | EDCantUseWiderBind String PPos
+  | EDScanError String PPos -- Rename to not builtin type.
+
   deriving (Show)
 
 showFCol :: PPos -> String -> String
@@ -414,6 +426,7 @@ errorMsg fname (EDFuncArgRepeated name p) = showFCol p fname ++ "Function argume
 errorMsg fname (EDStructArgRepeated name p) = showFCol p fname ++ "Struct member named `" ++ name ++ "' is repeated more than once."
 errorMsg fname (EDBind n p) = showFCol p fname ++ "Variable `" ++ n ++ "' is used, but not binded."
 errorMsg fname (EDCantUseWiderBind n p) = showFCol p fname ++ "Can't call function `" ++ n ++ "' because it refers to the wider scope than the current binded block does."
+errorMsg fname (EDScanError n p) = showFCol p fname ++ "Can't scan `" ++ n ++ "'. Not a builtin type."
 
 data FlowReason
   = FRBreak PPos
