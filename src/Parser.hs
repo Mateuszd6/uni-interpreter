@@ -51,6 +51,7 @@ instance Pos (Stmt (Maybe (Int, Int))) where
   getPos (SBreak pos) = pos
   getPos (SAssert pos _) = pos
   getPos (SPrint pos _) = pos
+  getPos (SScan pos _) = pos
   getPos (SCont pos) = pos
   getPos (SBlock pos _ _) = pos
 

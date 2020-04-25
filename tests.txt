@@ -1,3 +1,5 @@
+scan(int, int, string);
+
 x := 1;
 
 ! {

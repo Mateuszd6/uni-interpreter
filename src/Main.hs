@@ -6,6 +6,7 @@
 -- TODO: Fix the issue with *unknown* type.
 
 import Data.Bits (xor)
+import System.IO
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import Control.Monad (foldM, foldM_)
@@ -538,6 +539,24 @@ evalStmt (SPrint _ exprs) st =
   in
     foldM (\s ex -> evalExpr ex s >>= lift . printFstRetSnd) st exprs
 
+evalStmt (SScan _ types) st =
+  let toReadVar :: Type PPos -> (String -> (Var, String))
+      toReadVar (TInt _) = (\(x, y) -> (VInt x, y)) . head . (reads :: ReadS Int)
+      toReadVar (TBool _) = (\(x, y) -> (VBool x, y)) . head . (reads :: ReadS Bool)
+      toReadVar (TString _) = (\(x, y) -> (VString x, y)) . head . (reads :: ReadS String)
+      toReadVar _ = error "Can't read"
+  in do
+    mapM_ (\x -> lift $ putStrLn ("Should read: " ++ show x)) types
+    line <- lift $ getLine
+    let r = foldl (\(acc, str) t -> let (v, rest) = (toReadVar t) str
+                                    in (v:acc, rest)) ([], line) types
+
+    lift $ print r
+    return st
+  -- let printFstRetSnd :: Show a => (a, b) -> IO b
+      -- printFstRetSnd (x, y) = putStr (show x) >> return y
+  -- in
+    -- foldM (\s ex -> evalExpr ex s >>= lift . printFstRetSnd) st exprs
 
 evalStmt (SIf _ expr stmt) st = scope (evalIfStmtImpl expr stmt Nothing) Nothing st
 evalStmt (SIfElse _ expr stmt elStmt) st = scope (evalIfStmtImpl expr stmt (Just elStmt)) Nothing st
@@ -662,8 +681,21 @@ run fname pText = do
     -- ]
   -- exitFailure
 
+
+
 main :: IO ()
 main = do -- TODO: Support actual arugments.
+  -- putStr $ "Enter a number... "
+  -- hFlush stdout
+  -- n <- (readIO :: String -> IO Int) =<< getLine
+  -- putStrLn $ "Got: " ++ show n
+  -- hFlush stdout
+  -- putStr $ "Enter anohter number..."
+  -- hFlush stdout
+  -- n' <- (readIO :: String -> IO Int) =<< getLine
+  -- putStrLn $ "Got: " ++ show n'
+  -- hFlush stdout
+
   args <- getArgs
   case args of
     [] -> getContents >>= run "*stdin*"
