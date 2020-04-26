@@ -1,5 +1,6 @@
 module State where -- TODO: rename to runtime?
 
+import Control.Monad (when)
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
 import Data.List (find, sort)
 import qualified Data.Map.Strict as Map
@@ -7,7 +8,7 @@ import qualified Data.Set as Set
 
 import AbsLanguage
 
-type PPos = Maybe (Int, Int) -- TODO: Move it upper.
+type PPos = Maybe (Int, Int)
 
 type VarId = Int
 type FunId = Int
@@ -184,17 +185,15 @@ checkIfParamRepeated params ed =
 
 checkBind :: VarId -> Int -> String -> PPos -> State -> Error ()
 checkBind vId scopeN n p (State _ _ _ ((i, set):_))
-  | scopeN >= i = Ok () -- Variable declared insinde last bind block.
-  | Set.member vId set = Ok () -- Variable binded in the curr bind scope.
+  | scopeN >= i = return () -- Variable declared insinde last bind block.
+  | Set.member vId set = return () -- Variable binded in the curr bind scope.
   | otherwise = Fail $ EDBind n p
 
 -- We always have at least one bind rule in the scope:
 checkBind _ _ _ _ (State _ _ _ []) = undefined
 
 checkIfVarIsReadOnly :: VarInfo -> PPos -> Error ()
-checkIfVarIsReadOnly info p = if viIsReadOnly info
-                              then Fail $ EDVariableReadOnly p
-                              else Ok ()
+checkIfVarIsReadOnly info p = when (viIsReadOnly info) $ Fail $ EDVariableReadOnly p
 
 -- Create new variable and add it to the state.
 createVar :: String -> Bool -> Var -> PPos -> State -> Error (VarId, State)
@@ -264,9 +263,9 @@ getTypeStruct name p st = errorFromMaybe (EDTypeNotFound name p) $
     return (tId, strct)
 
 enforceIsBultinType :: Type PPos -> Error ()
-enforceIsBultinType (TInt _) = Ok ()
-enforceIsBultinType (TBool _) = Ok ()
-enforceIsBultinType (TString _) = Ok ()
+enforceIsBultinType (TInt _) = return ()
+enforceIsBultinType (TBool _) = return ()
+enforceIsBultinType (TString _) = return ()
 enforceIsBultinType (TUser p (Ident n)) = Fail $ EDScanError n p
 
 -- This function does not perform the type check!!
@@ -276,13 +275,13 @@ setVar vId val p s@(State _ str _ _) = do
   -- we give a variable an artificial name.
   (_, info) <- getVarImpl vId ("ID=" ++ show vId) p s
   checkIfVarIsReadOnly info p
-  Ok s{ stateStore = str{ storeVars = Map.insert vId (val, info) $ storeVars str }}
+  return s{ stateStore = str{ storeVars = Map.insert vId (val, info) $ storeVars str }}
 
 -- TODO: Provide for empty and uninitialized and tuple?
 getTypeId :: Type PPos -> State -> Error TypeId
-getTypeId (TInt _) _ = Ok 1
-getTypeId (TBool _) _ = Ok 2
-getTypeId (TString _) _ = Ok 3
+getTypeId (TInt _) _ = return 1
+getTypeId (TBool _) _ = return 2
+getTypeId (TString _) _ = return 3
 getTypeId (TUser p (Ident tname)) st =
   errorFromMaybe (EDTypeNotFound tname p) $
   Map.lookup tname (typesScope st)
@@ -312,33 +311,27 @@ varTypeId (VString _) = 3
 varTypeId (VTuple _) = 4 -- Tuple variables are only used when returning values.
 varTypeId (VStruct sId _) = sId -- Structs know their typeIDs.
 
-scope :: (State -> ErrorT IO State) -> Maybe (Set.Set VarId) -> State -> ErrorT IO State
-scope fun bind st =
+scopeA :: (a -> State) -> (a -> State -> a) ->
+         (State -> ErrorT IO a) ->
+         Maybe (Set.Set VarId) -> State -> ErrorT IO a
+scopeA getS setS fun bind st =
   let newBind = case bind of
                   Nothing -> bindVars st
                   Just set -> (scopeCnt st + 1, set) : bindVars st
   in do
-    lift $ putStrLn $ "Starting a new scope: " ++ show (scopeCnt st + 1)
-    -- lift $ dumpState $ st { scopeCnt = scopeCnt st + 1, bindVars = newBind}
-
-    st' <- fun st { scopeCnt = scopeCnt st + 1, bindVars = newBind}
-
-    lift $ putStrLn $ "Closing a scope: " ++ show (scopeCnt st + 1)
-    return st'{ scopeCnt = scopeCnt st, stateScope = stateScope st, bindVars = bindVars st }
+    retv <- fun st { scopeCnt = scopeCnt st + 1, bindVars = newBind }
+    return $ setS retv (getS retv){ scopeCnt = scopeCnt st,
+                                    stateScope = stateScope st,
+                                    bindVars = bindVars st }
     -- Rollbacks scope and bind vars after leaving the scope.
+
+scope :: (State -> ErrorT IO State) -> Maybe (Set.Set VarId) -> State -> ErrorT IO State
+scope = scopeA id (\_ x -> x)
 
 -- Handy when evaluating two things in a scoped block, like evaluating a
 -- function with return value.
 scope2 :: (State -> ErrorT IO (a, State)) -> Maybe (Set.Set VarId) -> State -> ErrorT IO (a, State)
-scope2 fun bind st =
-  let newBind = case bind of
-                  Nothing -> bindVars st
-                  Just set -> (scopeCnt st + 1, set) : bindVars st
-  in do
-    (x, st') <- fun st { scopeCnt = scopeCnt st + 1, bindVars = newBind}
-    return (x, st'{ scopeCnt = scopeCnt st, stateScope = stateScope st, bindVars = bindVars st })
-  -- (x, st') <- fun st { scopeCnt = scopeCnt st + 1 }
-  -- return (x, st'{ stateScope = stateScope st })
+scope2 = scopeA snd (\(x, _) z -> (x, z))
 
 nofail :: Show a => Error a -> a
 nofail (Ok x) = x
@@ -443,7 +436,7 @@ data Error a
   deriving (Show)
 
 instance Functor Error  where
-  fmap _ (Fail reason) = Fail reason
+  fmap _ (Fail rs) = Fail rs
   fmap _ (Flow r s) = Flow r s
   fmap f (Ok a) = Ok (f a)
 
@@ -452,18 +445,18 @@ instance Applicative Error where
 
   Ok f <*> m = fmap f m
   Flow r s <*> _m = Flow r s
-  Fail reason <*> _m = Fail reason
+  Fail rs <*> _m = Fail rs
 
   Ok _m1 *> m2 = m2
   Flow r s *> _m2 = Flow r s
-  Fail reason *> _m2 = Fail reason -- TODO(MD): Invesitgate
+  Fail rs *> _m2 = Fail rs
 
 instance Monad Error where
   (Ok x) >>= k = k x
   Flow r s >>= _ = Flow r s
-  Fail reason >>= _ = Fail reason
+  Fail rs >>= _ = Fail rs
 
-  (>>) = (*>) -- TODO(MD): Invesitgate
+  (>>) = (*>)
 
 newtype ErrorT m a = ErrorT { runErrorT :: m (Error a) }
 
@@ -476,7 +469,7 @@ instance (Monad m) => Monad (ErrorT m) where
   x >>= f = ErrorT $ do
       v <- runErrorT x
       case v of
-          Fail reason -> return $ Fail reason
+          Fail rs -> return $ Fail rs
           Flow r s -> return $ Flow r s
           Ok w -> runErrorT (f w)
 
@@ -489,21 +482,21 @@ instance (Functor m, Monad m) => Applicative (ErrorT m) where
   mf <*> mx = ErrorT $ do
       mb_f <- runErrorT mf
       case mb_f of
-          Fail reason -> return $ Fail reason
+          Fail rs -> return $ Fail rs
           Flow r s -> return $ Flow r s
           Ok f -> do
               mb_x <- runErrorT mx
               case mb_x of
-                  Fail reason -> return $ Fail reason
+                  Fail rs -> return $ Fail rs
                   Flow r s -> return $ Flow r s
                   Ok x  -> return (Ok (f x))
 
-  m *> k = m >> k -- TODO(MD): Invesitgate
+  m *> k = m >> k
 
 -- Convert Maybe a to Error a. If value is Nothing return an error with
 -- provided description.
 errorFromMaybe :: ErrorDetail -> Maybe a -> Error a
-errorFromMaybe _ (Just x) = Ok x
+errorFromMaybe _ (Just x) = return x
 errorFromMaybe det Nothing = Fail det
 
 -- Promote regular Error into ErrorT with any wrapped monad.

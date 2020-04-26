@@ -7,7 +7,7 @@
 -- TODO: Fix the issue with *unknown* type.
 -- TODO: Read only params in 'bad' tests.
 
-import Control.Monad (foldM, foldM_)
+import Control.Monad (foldM, foldM_, when)
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
 import Data.Bits (xor)
 import Data.Foldable (foldl')
@@ -45,10 +45,10 @@ asTuple _ _ (VTuple v) = Ok v
 asTuple _ p (VUninitialized 4) = Fail $ EDVarNotInitialized p -- TODO: Probably should not happen
 asTuple st p var = Fail $ EDTypeError "tuple" (getTypeName (varTypeId var) st) p
 
-asStruct :: PPos -> Var -> Error (TypeId, Struct)
-asStruct _ (VStruct tId str) = Ok (tId, str)
-asStruct p (VUninitialized _) = Fail $ EDVarNotInitialized p
-asStruct p _ = Fail $ EDVariableNotStruct p
+asStruct :: State -> PPos -> Var -> Error (TypeId, Struct)
+asStruct _ _ (VStruct tId str) = Ok (tId, str)
+asStruct _ p (VUninitialized _) = Fail $ EDVarNotInitialized p
+asStruct _ p _ = Fail $ EDVariableNotStruct p
 
 -- Abstract commonly occurinng patter of evaluating var and then checking its type.
 exprAs :: (State -> PPos -> Var -> Error a) -> Expr PPos -> State -> ErrorT IO (a, State)
@@ -58,16 +58,14 @@ exprAs asF expr st = do
   return (x, st')
 
 enforceParamLengthEqual :: PPos -> Int -> Int -> Error ()
-enforceParamLengthEqual p expected got
-  | expected == got = Ok ()
-  | otherwise = Fail $ EDInvalidNumParams p expected got
+enforceParamLengthEqual p expected got =
+  when (expected /= got) $ Fail $ EDInvalidNumParams p expected got
 
 -- Make sure the var is of the desired type or fail with a TypeError.
 enforceType :: Var -> TypeId -> PPos -> State -> Error ()
-enforceType v tId p st
-  | varTypeId v == tId = Ok ()
-  | otherwise = Fail $
-    EDTypeError (getTypeName tId st) (getTypeName (varTypeId v) st) p
+enforceType v tId p st = when (varTypeId v /= tId) $ Fail $
+                         EDTypeError (getTypeName tId st)
+                                     (getTypeName (varTypeId v) st) p
 
 enforceRetType :: Var -> FRetT -> PPos -> State -> Error ()
 enforceRetType (VTuple _) (FRetTSinge _) p _ = Fail $ EDTupleReturned p
@@ -173,7 +171,7 @@ getStructFieldImpl (tId, struct) field p st = do
   destTypeId <- getStructFieldType tId field p st
   destVar <- errorFromMaybe (EDNoMember p (getTypeName tId st) field) $
              Map.lookup field struct
-  (destTypeId, ) . snd <$> asStruct p destVar
+  (destTypeId, ) . snd <$> asStruct st p destVar
 
 getStructField :: (TypeId, Struct) -> [String] -> PPos -> State -> Error Var
 getStructField (tId, struct) [n] p st =
@@ -280,7 +278,7 @@ evalExpr (ELValue p (LValueVar _ (Ident vname))) st = toErrorT $
 
 evalExpr (ELValue p lv@LValueMemb {}) st = do
   (members, (_, var)) <- toErrorT $ lvalueMem lv st
-  structVar <- toErrorT $ asStruct p var
+  structVar <- toErrorT $ asStruct st p var
   toErrorT $ (, st) <$> getStructField structVar members p st
 
 evalExpr (ENew p (Ident name)) st
@@ -584,7 +582,7 @@ evalStmt (SAssign p lv expr) st = do
       enforceType var (varTypeId asgnVal) p st'
       setVar vId asgnVal p st'
     _ -> do -- Assign field of a struct.
-      (tId, struct) <- asStruct (getPos lv) var
+      (tId, struct) <- asStruct st' (getPos lv) var
       newStruct <- assgnStructField (tId, struct) membs asgnVal p st'
       setVar vId (VStruct tId newStruct) p st'
 
@@ -601,8 +599,7 @@ evalStmt (SBreak p) st = toErrorT $ Flow (FRBreak p) st
 evalStmt (SCont p) st = toErrorT $ Flow (FRContinue p) st
 
 evalProgram :: Program PPos -> ErrorT IO ()
-evalProgram (Prog _ stmts) = dontAllowBreakContinue $
-                             dontAllowReturn $
+evalProgram (Prog _ stmts) = dontAllowBreakContinue $ dontAllowReturn $
                              foldM_ (flip evalStmt) initialState stmts
 
 run :: String -> String -> IO ()
@@ -615,33 +612,9 @@ run fname pText = do
     Flow r _ -> printErr ("Flow is broken: " ++ show r ++ "\n") >> exitFailure
     Fail reason -> printErr (errorMsg fname reason) >> exitFailure
 
--- TODO.
--- usage :: IO ()
--- usage = do
-  -- putStrLn $ unlines
-    -- [ "usage: Call with one of the following argument combinations:"
-    -- , "  --help          Display this help message."
-    -- , "  (no arguments)  Parse stdin verbosely."
-    -- , "  (files)         Parse content of files verbosely."
-    -- , "  -s (files)      Silent mode. Parse content of files silently."
-    -- ]
-  -- exitFailure
-
-
 
 main :: IO ()
-main = do -- TODO: Support actual arugments.
-  -- putStr $ "Enter a number... "
-  -- hFlush stdout
-  -- n <- (readIO :: String -> IO Int) =<< getLine
-  -- putStrLn $ "Got: " ++ show n
-  -- hFlush stdout
-  -- putStr $ "Enter anohter number..."
-  -- hFlush stdout
-  -- n' <- (readIO :: String -> IO Int) =<< getLine
-  -- putStrLn $ "Got: " ++ show n'
-  -- hFlush stdout
-
+main = do
   args <- getArgs
   case args of
     [] -> getContents >>= run "*stdin*"

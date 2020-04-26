@@ -39,7 +39,7 @@ done
 
 if [ $errors -eq 0 ]; then
     echo ""
-    echo "All tests OK! I guess it's time to do something else now."
+    echo "All tests OK! It's time to do something else now!"
 else
     echo ""
     echo "$errors failed tests!"
