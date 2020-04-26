@@ -11,6 +11,9 @@ countIf = countIfImpl 0
 printFstRetSnd :: Show a => (a, b) -> IO b
 printFstRetSnd (x, y) = putStr (show x) >> return y
 
+mapFst :: (a -> b) -> (a, c) -> (b, c)
+mapFst f (x, y) = (f x, y)
+
 -- Equivalent to zip if lists have equal lengths, Nothing otherwise
 tryZip :: [a] -> [b] -> Maybe [(a, b)]
 tryZip [] [] = Just []

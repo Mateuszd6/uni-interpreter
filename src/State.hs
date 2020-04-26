@@ -272,8 +272,8 @@ enforceIsBultinType (TUser p (Ident n)) = Fail $ EDScanError n p
 -- This function does not perform the type check!!
 setVar :: VarId -> Var -> PPos -> State -> Error State
 setVar vId val p s@(State _ str _ _) = do
-  -- This should never fail unless there is a bug. That's why we give a variable
-  -- an artificial name
+  -- This should never fail to lookup the var, unless there is a bug. That's why
+  -- we give a variable an artificial name.
   (_, info) <- getVarImpl vId ("ID=" ++ show vId) p s
   checkIfVarIsReadOnly info p
   Ok s{ stateStore = str{ storeVars = Map.insert vId (val, info) $ storeVars str }}

@@ -4,7 +4,6 @@ start := 5;
 r := 0;
 i := start;
 while (true) {
-    print(i, "\n");
     r = r + (i * m);
     m = m * 10;
 

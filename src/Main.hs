@@ -50,6 +50,13 @@ asStruct _ (VStruct tId str) = Ok (tId, str)
 asStruct p (VUninitialized _) = Fail $ EDVarNotInitialized p
 asStruct p _ = Fail $ EDVariableNotStruct p
 
+-- Abstract commonly occurinng patter of evaluating var and then checking its type.
+exprAs :: (State -> PPos -> Var -> Error a) -> Expr PPos -> State -> ErrorT IO (a, State)
+exprAs asF expr st = do
+  (v, st') <- evalExpr expr st
+  x <- toErrorT $ asF st (getPos expr) v
+  return (x, st')
+
 enforceParamLengthEqual :: PPos -> Int -> Int -> Error ()
 enforceParamLengthEqual p expected got
   | expected == got = Ok ()
@@ -133,7 +140,7 @@ evalExprsListr exprs st = do
   return (vars, st')
 
 fnCallParams :: InvokeExprList PPos -> State -> ErrorT IO ([Var], State)
-fnCallParams (IELEmpty _) st = toErrorT $ Ok ([], st)
+fnCallParams (IELEmpty _) st = return ([], st)
 fnCallParams (IELDefault _ exprs) st = evalExprsListr exprs st
 
 -- Value is returned in a tricky way through 'Flow', so it has to be catched.
@@ -373,7 +380,7 @@ evalIfStmtImpl expr stmt elseStmt st = do
     then evalStmt stmt st'
     else case elseStmt of
            Just s -> evalStmt s st'
-           Nothing -> toErrorT $ Ok st'
+           Nothing -> return st'
 
 evalLoopImpl :: Expr PPos -> Stmt PPos -> Maybe (Stmt PPos) -> State -> ErrorT IO State
 evalLoopImpl expr stmt incStmt st = do
@@ -383,9 +390,7 @@ evalLoopImpl expr stmt incStmt st = do
   if cond
     then do
       st'' <- scope (catchContinue . evalStmt stmt) Nothing st'
-      st''' <- case incStmt of -- If incStmt is specified evaluate it.
-                 Nothing -> return st''
-                 Just increm -> evalStmt increm st''
+      st''' <- maybe (return st'') (`evalStmt` st'') incStmt -- Eval inc stmt if specified
       evalLoopImpl expr stmt incStmt st'''
     else return st'
 
@@ -393,14 +398,14 @@ catchBreak :: ErrorT IO State -> ErrorT IO State
 catchBreak st = do
   err_ <- lift $ runErrorT st
   case err_ of
-    Flow (FRBreak _) s -> toErrorT $ Ok s
+    Flow (FRBreak _) s -> return s
     _ -> toErrorT err_
 
 catchContinue :: ErrorT IO State -> ErrorT IO State
 catchContinue st = do
   err_ <- lift $ runErrorT st
   case err_ of
-    Flow (FRContinue _) s -> toErrorT $ Ok s
+    Flow (FRContinue _) s -> return s
     _ -> toErrorT err_
 
 catchReturnVoid :: PPos -> ErrorT IO State -> ErrorT IO (Var, State)
@@ -510,35 +515,27 @@ evalStmt (SPrint _ exprs) st = do
 evalStmt (SIf _ expr stmt) st = scope (evalIfStmtImpl expr stmt Nothing) Nothing st
 evalStmt (SIfElse _ expr stmt elStmt) st = scope (evalIfStmtImpl expr stmt (Just elStmt)) Nothing st
 
--- TODO: Should this be scoped?
-evalStmt (SWhile _ expr stmt) st = scope (catchBreak . evalLoopImpl expr stmt Nothing) Nothing st
+evalStmt (SWhile _ expr stmt) st = scope (catchBreak . evalWhileImpl expr stmt) Nothing st
+  where
+    evalWhileImpl :: Expr PPos -> Stmt PPos -> State -> ErrorT IO State
+    evalWhileImpl expr stmt st = do
+      (cond, st') <- exprAs asBool expr st
+      if cond
+        then do
+          st'' <- scope (catchContinue . evalStmt stmt) Nothing st'
+          evalWhileImpl expr stmt st''
+        else return st'
 
-evalStmt e@(SFor _ (Ident iterName) eStart eEnd stmt) st = do
-  (vStart, st') <- evalExpr eStart st
-  vStartConv <- toErrorT $ asInt st' (getPos eStart) vStart
+evalStmt e@(SFor p (Ident iterName) eStart eEnd stmt) st = do
+  (start, st') <- exprAs asInt eStart st
+  (end, st'') <- exprAs asInt eEnd st'
+  let iters = if start <= end then [start .. end] else reverse [end .. start]
+      loopStep i s = do
+        s' <- toErrorT $ evalVarDeclImpl (VSReadOnly p) iterName (VInt i) (getPos e) s
+        catchContinue $ evalStmt stmt s'
+      loopBody s = catchBreak $ foldM (\acc i -> scope (loopStep i) Nothing acc) s iters
 
-  (vEnd, st'') <- evalExpr eEnd st'
-  vEndConv <- toErrorT $ asInt st'' (getPos eEnd) vEnd
-
-  lift $ putStrLn $ "Loop goes from " ++ show vStartConv ++ " to " ++ show vEndConv
-
-  -- Build artificial statements and use them to control loop flow:
-  let (cmpFunc, incFunc) = if vStartConv < vEndConv
-                             then (ELeq, EPlus)
-                             else (EGeq, EMinus)
-      iterLVal = LValueVar Nothing $ Ident iterName
-      incRhsExpr = incFunc Nothing (ELValue Nothing iterLVal) $ EInt Nothing 1
-      endExpr = EInt Nothing $ toInteger vEndConv
-      incStmt = SAssign Nothing iterLVal incRhsExpr
-      cmpExpr = cmpFunc Nothing (ELValue Nothing iterLVal) endExpr
-
-  -- Create func taht declares a loop iterator and evaluates loop with given
-  -- control statements. Then run the function in a single scope.
-  let f s = do
-        s' <- toErrorT $ evalVarDeclImpl (VSNone Nothing) iterName (VInt vStartConv) (getPos e) s
-        catchBreak $ evalLoopImpl cmpExpr stmt (Just incStmt) s'
-
-  scope f Nothing st''
+  scope loopBody Nothing st''
 
 -- Discard expression result and return new state.
 evalStmt (SExpr _ expr) st = snd <$> evalExpr expr st

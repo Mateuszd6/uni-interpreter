@@ -24,10 +24,7 @@ while (a <= n)
 // Also for for for loops:
 for (i : 0..10)
 {
-    i = i - 2; // This loop would never end...
-    if ((i % 10) != 0)
-	continue;
-
-    break;     // ...If not this break statement.
+    // This loop would never end if not this break statement.
+    break;
     while (true) { } // Not reached.
 }

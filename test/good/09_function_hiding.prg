@@ -11,7 +11,7 @@ g_test := 0;
 
     {
         test1 :: () {
-            print("This function shadows test1()\n");
+            // This function shadows test1().
             g_test = 100;
         }
 
