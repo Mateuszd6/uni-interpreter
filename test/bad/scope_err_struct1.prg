@@ -1,6 +1,7 @@
-// FAILS: scope_err_struct1.prg:30:16: Type error: expected `foo', got `*unknown* (typeId = 5)'.
-// Structs defined for local scope and their rules.
-// TODO: Fix unknown.
+// FAILS: scope_err_struct1.prg:31:16: Type error: expected `foo', got `foo'.
+
+// Structs defined for local scope and their rules. Well... Maybe it
+// is not the best error message I've ever seen, but it's something.
 
 foo :: struct {
     x : int;
