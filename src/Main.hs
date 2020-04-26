@@ -7,7 +7,7 @@
 -- TODO: Fix the issue with *unknown* type.
 -- TODO: Read only params in 'bad' tests.
 
-import Control.Monad (foldM, foldM_, when)
+import Control.Monad (foldM, foldM_, when, unless)
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
 import Data.Bits (xor)
 import Data.Foldable (foldl')
@@ -25,28 +25,28 @@ import Parser
 import State
 
 asInt :: State -> PPos -> Var -> Error Int
-asInt _ _ (VInt v) = Ok v
+asInt _ _ (VInt v) = return v
 asInt _ p (VUninitialized 1) = Fail $ EDVarNotInitialized p
 asInt st p var = Fail $ EDTypeError "int" (getTypeName (varTypeId var) st) p
 
 asBool :: State -> PPos -> Var -> Error Bool
-asBool _ _ (VBool v) = Ok v
+asBool _ _ (VBool v) = return v
 asBool _ p (VUninitialized 2) = Fail $ EDVarNotInitialized p
 asBool st p var = Fail $ EDTypeError "bool" (getTypeName (varTypeId var) st) p
 
 asString :: State -> PPos -> Var -> Error String
-asString _ _ (VString v) = Ok v
+asString _ _ (VString v) = return v
 asString _ p (VUninitialized 3) = Fail $ EDVarNotInitialized p
 asString st p var = Fail $ EDTypeError "string" (getTypeName (varTypeId var) st) p
 
 -- TODO: why we hardcode the names, and don't use getTypeName?
 asTuple :: State -> PPos -> Var -> Error [Var]
-asTuple _ _ (VTuple v) = Ok v
+asTuple _ _ (VTuple v) = return v
 asTuple _ p (VUninitialized 4) = Fail $ EDVarNotInitialized p -- TODO: Probably should not happen
 asTuple st p var = Fail $ EDTypeError "tuple" (getTypeName (varTypeId var) st) p
 
 asStruct :: State -> PPos -> Var -> Error (TypeId, Struct)
-asStruct _ _ (VStruct tId str) = Ok (tId, str)
+asStruct _ _ (VStruct tId str) = return (tId, str)
 asStruct _ p (VUninitialized _) = Fail $ EDVarNotInitialized p
 asStruct _ p _ = Fail $ EDVariableNotStruct p
 
@@ -64,8 +64,7 @@ enforceParamLengthEqual p expected got =
 -- Make sure the var is of the desired type or fail with a TypeError.
 enforceType :: Var -> TypeId -> PPos -> State -> Error ()
 enforceType v tId p st = when (varTypeId v /= tId) $ Fail $
-                         EDTypeError (getTypeName tId st)
-                                     (getTypeName (varTypeId v) st) p
+  EDTypeError (getTypeName tId st) (getTypeName (varTypeId v) st) p
 
 enforceRetType :: Var -> FRetT -> PPos -> State -> Error ()
 enforceRetType (VTuple _) (FRetTSinge _) p _ = Fail $ EDTupleReturned p
@@ -76,6 +75,31 @@ enforceRetType (VTuple vars) (FRetTTuple types) p st = do
   mapM_ (\(t, v) -> enforceType v t p st) zipped
 
 enforceRetType _ (FRetTTuple _) p _ = Fail $ EDValueReturned p
+
+enforce0div :: Int -> Int -> PPos -> Error ()
+enforce0div _ d p = when (d == 0) $ Fail $ EDDivideByZero p
+
+enforceIsBultinType :: Type PPos -> Error ()
+enforceIsBultinType (TInt _) = return ()
+enforceIsBultinType (TBool _) = return ()
+enforceIsBultinType (TString _) = return ()
+enforceIsBultinType (TUser p (Ident n)) = Fail $ EDScanError n p
+
+enforceBindedVarsAreInBlock :: String -> Func -> PPos -> State -> Error ()
+enforceBindedVarsAreInBlock fname func p st = do
+  bind <- errorFromMaybe (EDCantUseWiderBind fname p) $ funcBind func
+  unless (setContainsAll (snd $ head $ bindVars st) bind) $
+         Fail $ EDCantUseWiderBind fname p
+  where
+    setContainsAll :: Set.Set VarId -> Set.Set VarId -> Bool
+    setContainsAll wider = foldr (\vId acc -> acc && Set.member vId wider) True
+
+enforceFnCallBindRules :: String -> Func -> PPos -> State -> Error ()
+enforceFnCallBindRules fname func p st =
+  when (definedAt < lastBindAt) $ enforceBindedVarsAreInBlock fname func p st
+  where
+    definedAt = fScopeN func
+    lastBindAt = fst $ head $ bindVars st
 
 -- Evaluates binary expresion with parametrized the func.
 evalBinExpr :: (State -> PPos -> Var -> Error a) -> -- Convert Var to desired type.
@@ -97,7 +121,7 @@ evalBinExpr varTo func varCtor lhs rhs constr st = do
 
   toErrorT $ case constr of
     Just f -> f evaledLConv evaledRConv $ getPos rhs
-    Nothing -> Ok ()
+    Nothing -> return ()
 
   -- Now use the ctor to wrap calculated value back into Var type.
   return (varCtor $ evaledLConv `func` evaledRConv, st'')
@@ -105,35 +129,26 @@ evalBinExpr varTo func varCtor lhs rhs constr st = do
 evalEqualExpr :: Bool -> Expr PPos -> Expr PPos -> State -> ErrorT IO (Var, State)
 evalEqualExpr neg lhs rhs st =
   let tryComp :: Var -> Var -> Error Bool
-      tryComp (VInt x) (VInt y) = Ok $ x == y
-      tryComp (VBool x) (VBool y) = Ok $ x == y
-      tryComp (VString x) (VString y) = Ok $ x == y
+      tryComp (VInt x) (VInt y) = return $ x == y
+      tryComp (VBool x) (VBool y) = return $ x == y
+      tryComp (VString x) (VString y) = return $ x == y
       tryComp v1 v2 = Fail $ EDCantCompare (getPos lhs)
-                                 (getTypeName (varTypeId v1) st)
-                                 (getTypeName (varTypeId v2) st)
+                                           (getTypeName (varTypeId v1) st)
+                                           (getTypeName (varTypeId v2) st)
   in do
     (evaledL, st') <- evalExpr lhs st
     (evaledR, st'') <- evalExpr rhs st'
     comp <- toErrorT $ tryComp evaledL evaledR
     return (VBool $ (if neg then not else id) comp, st'')
 
--- Use foldr becasue we evaluate args from right to left like C does.
-foldrM :: Monad m => (a -> b -> m b) -> b -> [a] -> m b
-foldrM _ d [] = return d
-foldrM f d (x:xs) = foldrM f d xs >>= f x
-
-appendFst :: [a] -> (a, b) -> ([a], b)
-appendFst xs (x, b) = (x:xs, b)
-
 -- Evalulate a list of expressions with foldr, return the list and a new
 -- state. Each expression is evaluated in a new state (right to left).
--- TODO: Try to save ppos so that erorss are nicer here.
 evalExprsListr :: [Expr PPos] -> State -> ErrorT IO ([Var], State)
 evalExprsListr exprs st = do
   (vars, st') <- foldrM (\ex (vars, s) -> appendFst vars <$> evalExpr ex s) ([], st) exprs
   toErrorT $ mapM_ (\(e, v) -> case v of
                                  VTuple _ -> Fail $ EDTupleNotAllowed (getPos e)
-                                 _ -> Ok ())
+                                 _ -> return ())
     $ zip exprs vars
   return (vars, st')
 
@@ -151,7 +166,7 @@ evalFunction func invokeP p st = do
 
   st' <- toErrorT $
     foldrM (\(par, (pname, spec, tId)) s -> enforceType par tId p s >>
-                                            snd <$> createVar pname (varSpecReadOnly spec) par p s)
+             snd <$> createVar pname (varSpecReadOnly spec) par p s)
            st { scopeCnt = scopeCnt st + 1,
                 stateScope = funcScope func,
                 bindVars = foo } $
@@ -198,9 +213,9 @@ assgnStructField (tId, struct) (n:ns) asgnVal p st = do
 assgnStructField _ [] _ _ _ = undefined -- Would not parse.
 
 getBindVars :: Bind PPos -> State -> Error (Maybe (Set.Set VarId))
-getBindVars (BdPure _) _ = Ok $ Just $ Set.fromList []
-getBindVars (BdPureAlt _) _ = Ok $ Just $ Set.fromList[]
-getBindVars (BdNone _) _ = Ok Nothing
+getBindVars (BdPure _) _ = return $ Just $ Set.fromList []
+getBindVars (BdPureAlt _) _ = return $ Just $ Set.fromList[]
+getBindVars (BdNone _) _ = return Nothing
 getBindVars (BdDefault p idents) st = fromMaybeList <$>
   foldM (\acc name -> (\x -> (:) x <$> acc) . fst <$> getVar name p st)
         (Just [])
@@ -209,29 +224,6 @@ getBindVars (BdDefault p idents) st = fromMaybeList <$>
     fromMaybeList :: Ord a => Maybe [a] -> Maybe (Set.Set a)
     fromMaybeList (Just l) = Just $ Set.fromList l
     fromMaybeList Nothing = Nothing
-
-enforce0div :: Int -> Int -> PPos -> Error ()
-enforce0div _ 0 p = Fail $ EDDivideByZero p
-enforce0div _ _ _ = Ok ()
-
-enfoceBindedVarsAreInBlock :: String -> Func -> PPos -> State -> Error ()
-enfoceBindedVarsAreInBlock fname func p st = do
-  bind <- errorFromMaybe (EDCantUseWiderBind fname p) $ funcBind func
-  if setContainsAll (snd $ head $ bindVars st) bind
-    then Ok ()
-    else Fail $ EDCantUseWiderBind fname p
-  where
-    setContainsAll :: Set.Set VarId -> Set.Set VarId -> Bool
-    setContainsAll wider = foldr (\vId acc -> acc && Set.member vId wider) True
-
-enforceFnCallBindRules :: String -> Func -> PPos -> State -> Error ()
-enforceFnCallBindRules fname func p st =
-  let definedAt = fScopeN func
-      lastBindAt = fst $ head $ bindVars st
-  in
-    if definedAt >= lastBindAt
-      then Ok ()
-      else enfoceBindedVarsAreInBlock fname func p st
 
 returnHanlder :: Func -> PPos -> (ErrorT IO State -> ErrorT IO (Var, State))
 returnHanlder func p =
@@ -319,12 +311,12 @@ evalExpr (EScan _ types) st = do
   line <- lift $ catchIOError getLine (\_ -> return [])
   let failedParse t l = (False, (False, toUninitialized t) : l)
       vars = reverse $ snd $
-             foldl' (\(parsedSoFar, l) (t, s) ->
-                        if parsedSoFar
-                        then maybe (failedParse t l)
-                             ((True, ) . flip (:) l <$> (True, ))
-                             (s >>= parse t)
-                        else failedParse t l)
+             foldl' (\(ok, l) (t, s) ->
+                        if ok
+                          then maybe (failedParse t l)
+                               ((True, ) . flip (:) l <$> (True, ))
+                               (s >>= parse t)
+                          else failedParse t l)
                     (True, [])
                     (zipMaybe types (words line))
       parsedSuccessfully = countIf fst vars
@@ -335,9 +327,9 @@ evalExpr (EScan _ types) st = do
     parse (TInt _) s = VInt <$> (readMaybe :: String -> Maybe Int) s
     parse (TBool _) s = VBool <$> (readMaybe :: String -> Maybe Bool) s
     parse (TString _) s = Just $ VString s
-    parse _ _ = undefined -- Safe, because we've checked for these types before
+    parse _ _ = undefined -- We've checked for these types before
 
-    toUninitialized :: Type PPos -> Var
+    toUninitialized :: Type PPos -> Var -- TODO: Fix when killed uninitialized.
     toUninitialized t = VUninitialized $ nofail $ getTypeId t st
 
 varSpecReadOnly :: VarSpec a -> Bool
@@ -380,18 +372,6 @@ evalIfStmtImpl expr stmt elseStmt st = do
            Just s -> evalStmt s st'
            Nothing -> return st'
 
-evalLoopImpl :: Expr PPos -> Stmt PPos -> Maybe (Stmt PPos) -> State -> ErrorT IO State
-evalLoopImpl expr stmt incStmt st = do
-  (v, st') <- evalExpr expr st
-  cond <- toErrorT $ asBool st' (getPos expr) v
-  lift $ putStrLn $ "evaluated loop condition: " ++ show cond
-  if cond
-    then do
-      st'' <- scope (catchContinue . evalStmt stmt) Nothing st'
-      st''' <- maybe (return st'') (`evalStmt` st'') incStmt -- Eval inc stmt if specified
-      evalLoopImpl expr stmt incStmt st'''
-    else return st'
-
 catchBreak :: ErrorT IO State -> ErrorT IO State
 catchBreak st = do
   err_ <- lift $ runErrorT st
@@ -410,9 +390,9 @@ catchReturnVoid :: PPos -> ErrorT IO State -> ErrorT IO (Var, State)
 catchReturnVoid _ st = do
   err_ <- lift $ runErrorT st
   toErrorT $ case err_ of -- TODO: refactor above to work like this one.
-    Flow (FRReturn _ VEmpty) st' -> Ok (VEmpty, st')
+    Flow (FRReturn _ VEmpty) st' -> return (VEmpty, st')
     Flow (FRReturn p _) _ -> Fail $ EDNoReturnNonVoid p
-    Ok st' -> Ok (VEmpty, st')
+    Ok st' -> return (VEmpty, st')
     Flow x y -> Flow x y
     Fail r -> Fail r
 
@@ -421,7 +401,7 @@ expectReturnValue retT p st = do
   err_ <- lift $ runErrorT st
   toErrorT $ case err_ of
     Flow (FRReturn p0 VEmpty) _ -> Fail $ EDReturnVoid p0
-    Flow (FRReturn p0 v) st' -> enforceRetType v retT p0 st' >> Ok (v, st')
+    Flow (FRReturn p0 v) st' -> enforceRetType v retT p0 st' >> return (v, st')
     Fail r -> Fail r
     _ -> Fail $ EDNoReturn p
 
@@ -441,7 +421,7 @@ dontAllowReturn st = do
     _ -> err_
 
 parseRetType :: FuncRetT PPos -> State -> Error FRetT
-parseRetType (FRTEmpty _) _ = Ok $ FRetTSinge 0
+parseRetType (FRTEmpty _) _ = return $ FRetTSinge 0
 parseRetType (FRTSingle _ t) st = FRetTSinge <$> getTypeId t st
 parseRetType (FRTTuple _ types) st = FRetTTuple <$>
   foldrM (\a b -> flip (:) b <$> getTypeId a st) [] types
@@ -451,7 +431,7 @@ funcReturnsVoid (FRetTSinge 0) = True
 funcReturnsVoid _ = False
 
 funcToParams :: FunParams PPos -> State -> Error [Param]
-funcToParams (FPEmpty _) _ = Ok []
+funcToParams (FPEmpty _) _ = return []
 funcToParams (FPList _ declParams) st =
   mapM (\(DDeclBasic _ (Ident n) spec t) -> (n, spec, ) <$> getTypeId t st) declParams
 
@@ -465,7 +445,7 @@ tupleAsgnOrDeclImpl decl targs vs p st = do
   let action = if decl then evalVarDeclImpl (VSNone Nothing) else evalVarAsgnImpl
   toErrorT $ foldrM (\(tar, v) s ->
                        case tar of
-                         IOIIgnore _ -> Ok s
+                         IOIIgnore _ -> return s
                          IOIIdent pv (Ident name) -> action name v pv s)
                     st zipped
 
@@ -476,7 +456,7 @@ tupleAsgnImpl :: [IdentOrIgnr PPos] -> [Var] -> PPos -> State -> ErrorT IO State
 tupleAsgnImpl = tupleAsgnOrDeclImpl False
 
 getStructMemebers :: StrcMembers PPos -> State -> Error [(String, TypeId)]
-getStructMemebers (SMEmpty _) _ = Ok []
+getStructMemebers (SMEmpty _) _ = return []
 getStructMemebers (SMDefault _ members) st =
   foldrM (\(DStrMem _ (Ident name) tp) acc -> flip (:) acc . (name, ) <$>
                                               getTypeId tp st)
@@ -511,9 +491,11 @@ evalStmt (SPrint _ exprs) st = do
   return st'
 
 evalStmt (SIf _ expr stmt) st = scope (evalIfStmtImpl expr stmt Nothing) Nothing st
-evalStmt (SIfElse _ expr stmt elStmt) st = scope (evalIfStmtImpl expr stmt (Just elStmt)) Nothing st
+evalStmt (SIfElse _ expr stmt elStmt) st =
+  scope (evalIfStmtImpl expr stmt (Just elStmt)) Nothing st
 
-evalStmt (SWhile _ expr stmt) st = scope (catchBreak . evalWhileImpl expr stmt) Nothing st
+evalStmt (SWhile _ expr_ stmt_) st_ = scope (catchBreak . evalWhileImpl expr_ stmt_)
+                                      Nothing st_
   where
     evalWhileImpl :: Expr PPos -> Stmt PPos -> State -> ErrorT IO State
     evalWhileImpl expr stmt st = do
@@ -611,7 +593,6 @@ run fname pText = do
     -- TODO: This can't happen:
     Flow r _ -> printErr ("Flow is broken: " ++ show r ++ "\n") >> exitFailure
     Fail reason -> printErr (errorMsg fname reason) >> exitFailure
-
 
 main :: IO ()
 main = do

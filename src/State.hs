@@ -262,12 +262,6 @@ getTypeStruct name p st = errorFromMaybe (EDTypeNotFound name p) $
     strct <- Map.lookup tId (typesStore st)
     return (tId, strct)
 
-enforceIsBultinType :: Type PPos -> Error ()
-enforceIsBultinType (TInt _) = return ()
-enforceIsBultinType (TBool _) = return ()
-enforceIsBultinType (TString _) = return ()
-enforceIsBultinType (TUser p (Ident n)) = Fail $ EDScanError n p
-
 -- This function does not perform the type check!!
 setVar :: VarId -> Var -> PPos -> State -> Error State
 setVar vId val p s@(State _ str _ _) = do
@@ -311,6 +305,7 @@ varTypeId (VString _) = 3
 varTypeId (VTuple _) = 4 -- Tuple variables are only used when returning values.
 varTypeId (VStruct sId _) = sId -- Structs know their typeIDs.
 
+-- To avoid code duplication in scope and scope2.
 scopeA :: (a -> State) -> (a -> State -> a) ->
          (State -> ErrorT IO a) ->
          Maybe (Set.Set VarId) -> State -> ErrorT IO a
@@ -325,12 +320,12 @@ scopeA getS setS fun bind st =
                                     bindVars = bindVars st }
     -- Rollbacks scope and bind vars after leaving the scope.
 
-scope :: (State -> ErrorT IO State) -> Maybe (Set.Set VarId) -> State -> ErrorT IO State
+scope :: (State -> ErrorT IO State) -> Maybe (Set.Set VarId) -> State
+      -> ErrorT IO State
 scope = scopeA id (\_ x -> x)
 
--- Handy when evaluating two things in a scoped block, like evaluating a
--- function with return value.
-scope2 :: (State -> ErrorT IO (a, State)) -> Maybe (Set.Set VarId) -> State -> ErrorT IO (a, State)
+scope2 :: (State -> ErrorT IO (a, State)) -> Maybe (Set.Set VarId) -> State
+       -> ErrorT IO (a, State)
 scope2 = scopeA snd (\(x, _) z -> (x, z))
 
 nofail :: Show a => Error a -> a
