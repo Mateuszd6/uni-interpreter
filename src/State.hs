@@ -117,41 +117,6 @@ initialState = State 0
                      (Scope Map.empty Map.empty Map.empty)
                      [(-1, Set.fromList [])]
 
--- TODO: Kill when not necesarry
-dumpState :: State -> IO ()
-dumpState s = do
-  putStrLn "Dumping state:"
-  putStrLn $ "Currect scope:" ++ show (scopeCnt s)
-  putStrLn "  Store:"
-  putStrLn "    Vars:"
-  putMap $ storeVars $ stateStore s
-  putStrLn "    Funcs:"
-  putMap $ funcsStore s
-  putStrLn "    Types:"
-  putMap $ storeTypes $ stateStore s
-  -- putStrLn "    Types:"
-  -- putMap $ storeTypes $ stateStore s
-  putStrLn "  Scope:"
-  putStrLn "    Vars:"
-  putMap $ scopeVars $ stateScope s
-  putStrLn "    Funcs:"
-  putMap $ scopeFuncs $ stateScope s
-  putStrLn "    Types:"
-  putMap $ scopeTypes $ stateScope s
-  putStrLn "BIND:"
-  putListOfSets
-  where
-    putMap :: (Show a, Show b) => Map.Map a b -> IO ()
-    putMap =
-      mapM_ (putStrLn . (\(x, y) -> "      " ++ show x ++ " -> " ++ show y))
-      . Map.toList
-    putListOfSets =
-      mapM_ (\(x, y) -> putStr ("      " ++ show x ++ " ->") >> putSet y >> putStrLn "") $ bindVars s
-    putSet :: (Show a) => Set.Set a -> IO ()
-    putSet =
-      mapM_ (putStr . (\x -> " " ++ show x))
-      . Set.toList
-
 -- Create new variable and add it to the state.
 createVar :: String -> Bool -> Var -> PPos -> State -> Error (VarId, State)
 createVar name rdOnly v p s@(State c str@(Store vars _ _ next _ _) scp@(Scope vnames _ _) _) =
