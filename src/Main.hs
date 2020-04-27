@@ -21,27 +21,8 @@ import Error
 import Parser
 import State
 
-asInt :: State -> PPos -> Var -> Error Int
-asInt _ _ (VInt v) = return v
-asInt st p var = Fail $ EDTypeError "int" (getTypeName (varTypeId var) st) p
-
-asBool :: State -> PPos -> Var -> Error Bool
-asBool _ _ (VBool v) = return v
-asBool st p var = Fail $ EDTypeError "bool" (getTypeName (varTypeId var) st) p
-
-asString :: State -> PPos -> Var -> Error String
-asString _ _ (VString v) = return v
-asString st p var = Fail $ EDTypeError "string" (getTypeName (varTypeId var) st) p
-
-asTuple :: State -> PPos -> Var -> Error [Var]
-asTuple _ _ (VTuple v) = return v
-asTuple st p var = Fail $ EDTypeError "tuple" (getTypeName (varTypeId var) st) p
-
-asStruct :: State -> PPos -> Var -> Error (TypeId, Struct)
-asStruct _ _ (VStruct tId str) = return (tId, str)
-asStruct _ p _ = Fail $ EDVarNotStruct p
-
 -- Abstract commonly occurinng pattern of evaluating var and then checking its type.
+-- asF functions are defined in the State module (asInt, asBool, ...)
 exprAs :: (State -> PPos -> Var -> Error a) -> Expr PPos -> State -> CtrlT IO (a, State)
 exprAs asF expr st = do
   (v, st') <- evalExpr expr st

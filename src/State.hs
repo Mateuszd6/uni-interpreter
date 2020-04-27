@@ -117,41 +117,108 @@ initialState = State 0
                      (Scope Map.empty Map.empty Map.empty)
                      [(-1, Set.fromList [])]
 
+-- CtrlT moand, which nests another monad in Error Monad (wrapped so that we can have
+-- returns/breaks). Basically used only with IO monad in the entire project...
+data ExcType
+  = ExBreak PPos
+  | ExContinue PPos
+  | ExReturn PPos Var
+  deriving (Show)
+
+instance Pos ExcType where
+  getPos (ExBreak pos) = pos
+  getPos (ExContinue pos) = pos
+  getPos (ExReturn pos _) = pos
+
+-- There are no exceptions, but return/break etc. statements sort of function like that.
+data CtrlFlow a
+  = CtrlRegular (Error a)
+  | CtrlException ExcType State
+  deriving (Show)
+
+instance Functor CtrlFlow where
+  fmap f (CtrlRegular a) = CtrlRegular $ f <$> a
+  fmap _ (CtrlException r s) = CtrlException r s
+
+newtype CtrlT m a = CtrlT { runCtrlT :: m (CtrlFlow a) }
+
+instance MonadTrans CtrlT where
+  lift = CtrlT . fmap (CtrlRegular . Ok)
+
+instance (Monad m) => Monad (CtrlT m) where
+  return = CtrlT . return . CtrlRegular . Ok
+
+  x >>= f = CtrlT $ do
+    v <- runCtrlT x
+    case v of
+      CtrlRegular (Fail rs) -> return . CtrlRegular $ Fail rs
+      CtrlRegular (Ok w) -> runCtrlT (f w)
+      CtrlException r s -> return (CtrlException r s)
+
+instance (Functor m) => Functor (CtrlT m) where
+  fmap f = CtrlT . fmap (fmap f) . runCtrlT
+
+instance (Functor m, Monad m) => Applicative (CtrlT m) where
+  pure = CtrlT . return . CtrlRegular . Ok
+
+  mf <*> mx = CtrlT $ do
+    mb_f <- runCtrlT mf
+    case mb_f of
+      CtrlException r s -> return (CtrlException r s)
+      CtrlRegular (Fail rs) -> return $ CtrlRegular (Fail rs)
+      CtrlRegular (Ok f) -> do
+        mb_x <- runCtrlT mx
+        case mb_x of
+          CtrlException r s -> return (CtrlException r s)
+          CtrlRegular (Fail rs) -> return $ CtrlRegular (Fail rs)
+          CtrlRegular (Ok x) -> return $ CtrlRegular (Ok $ f x)
+
+-- Promote regular Error into CtrlT. This is used a lot because most functions won't
+-- change the flow (won't return or something similar), so they return error. But things
+-- like statements do, so anything just returning errors is wrapped with this.
+toCtrlT :: Monad m => Error a -> CtrlT m a
+toCtrlT = CtrlT . return . CtrlRegular
+
+-- Used only once at the end of the program. Basically, don't allow program to
+-- be in 'exception thrown' state, but treat is as an error.
+ctrlToError :: CtrlFlow a -> Error a
+ctrlToError (CtrlRegular err) = err
+ctrlToError (CtrlException expType _) = Fail $ EDUncoughtedExc (show expType) (getPos expType)
+
 -- Create new variable and add it to the state.
 createVar :: String -> Bool -> Var -> PPos -> State -> Error (VarId, State)
 createVar name rdOnly v p s@(State c str@(Store vars _ _ next _ _) scp@(Scope vnames _ _) _) =
   let varInfo = VarInfo (scopeCnt s) rdOnly
+      storeVars' = Map.insert next (v, varInfo) vars
   in do
     enforceNotAlreadyDefined name (viScopeN . snd) vnames vars c (EDVarAlreadyDeclared p)
     return (next, s{
-               stateStore = str{ storeVars = Map.insert next (v, varInfo) vars,
-                                 nextVarId = next + 1 },
+               stateStore = str{ storeVars = storeVars', nextVarId = next + 1 },
                stateScope = scp{ scopeVars = Map.insert name next vnames } })
 
 -- TODO: Decide if this is better, or below is better and refactor.
-createFunc :: String -> Stmt PPos ->
-              [Param] -> FRetT ->
-              Maybe (Set.Set VarId) -> -- Bind
-              PPos -> State ->
-              Error (FunId, State)
-createFunc name body params ret bind p st@(State c str@(Store _ _ _  _ next _) _ _) =
-  let scp' = (stateScope st){ scopeFuncs = Map.insert name next (funcsScope st) } -- Allow recursion
+createFunc :: String -> Stmt PPos -> [Param] -> FRetT -> Maybe (Set.Set VarId) ->
+              PPos -> State -> Error (FunId, State)
+createFunc name body params ret bind p st@(State c str@Store { nextFuncId = next } _ _) =
+  let scp' = (stateScope st){ scopeFuncs = Map.insert name next (funcsScope st) }
+      storeFuncs' = Map.insert next func (funcsStore st)
       func = Func next body ret params bind scp' c
   in do
     enforceNotAlreadyDefined name fScopeN (funcsScope st) (funcsStore st) c (EDFuncAlreadyDeclared p)
     enforceNotParamRepeated (map (\(x, _, _) -> x) params) (flip EDFuncArgRepeated p)
     return (next, st{
-               stateStore = str{ storeFuncs = Map.insert next func (funcsStore st),
-                                 nextFuncId = next + 1 },
+               stateStore = str{ storeFuncs = storeFuncs', nextFuncId = next + 1 },
                stateScope = scp' })
 
 createStruct :: String -> PPos -> [(String, TypeId)] -> State -> Error (TypeId, State)
-createStruct name p fields s@(State _ str@(Store _ _ types _ _ next) scp@(Scope _ _ tnames) _) = do
-  enforceNotParamRepeated (map fst fields) (flip EDStructArgRepeated p)
-  return (next, s{
-      stateStore = str{ storeTypes = Map.insert next (StructDef name $ Map.fromList fields) types,
-                        nextTypeId = next + 1 },
-      stateScope = scp{ scopeTypes = Map.insert name next tnames } })
+createStruct name p fields st@(State _ str@Store { nextTypeId = next } _ _) =
+  let storeTypes' = Map.insert next (StructDef name $ Map.fromList fields) (storeTypes str)
+      scopeTypes' = Map.insert name next (typesScope st)
+  in do
+    enforceNotParamRepeated (map fst fields) (flip EDStructArgRepeated p)
+    return (next, st{
+               stateStore = str{ storeTypes = storeTypes', nextTypeId = next + 1 },
+               stateScope = (stateScope st){ scopeTypes = scopeTypes' } })
 
 getVarImpl :: VarId -> String -> PPos -> State -> Error (Var, VarInfo)
 getVarImpl vId vname p st = do
@@ -255,76 +322,28 @@ scope2 :: (State -> CtrlT IO (a, State)) -> Maybe (Set.Set VarId) -> State
        -> CtrlT IO (a, State)
 scope2 = scopeA snd (\(x, _) z -> (x, z))
 
-nofail :: Show a => Error a -> a
-nofail (Ok x) = x
-nofail e = error $ "Unexpected error: " ++ show e
+-- Convert vars to desired type or return a type error.
+asInt :: State -> PPos -> Var -> Error Int
+asInt _ _ (VInt v) = return v
+asInt st p var = Fail $ EDTypeError "int" (getTypeName (varTypeId var) st) p
 
-data ExcType
-  = ExBreak PPos
-  | ExContinue PPos
-  | ExReturn PPos Var
-  deriving (Show)
+asBool :: State -> PPos -> Var -> Error Bool
+asBool _ _ (VBool v) = return v
+asBool st p var = Fail $ EDTypeError "bool" (getTypeName (varTypeId var) st) p
 
-instance Pos ExcType where
-  getPos (ExBreak pos) = pos
-  getPos (ExContinue pos) = pos
-  getPos (ExReturn pos _) = pos
+asString :: State -> PPos -> Var -> Error String
+asString _ _ (VString v) = return v
+asString st p var = Fail $ EDTypeError "string" (getTypeName (varTypeId var) st) p
 
--- There are no exceptions, but return/break etc. statements sort of function like that.
-data CtrlFlow a
-  = CtrlRegular (Error a)
-  | CtrlException ExcType State
-  deriving (Show)
+asTuple :: State -> PPos -> Var -> Error [Var]
+asTuple _ _ (VTuple v) = return v
+asTuple st p var = Fail $ EDTypeError "tuple" (getTypeName (varTypeId var) st) p
 
-instance Functor CtrlFlow where
-  fmap f (CtrlRegular a) = CtrlRegular $ f <$> a
-  fmap _ (CtrlException r s) = CtrlException r s
+asStruct :: State -> PPos -> Var -> Error (TypeId, Struct)
+asStruct _ _ (VStruct tId str) = return (tId, str)
+asStruct _ p _ = Fail $ EDVarNotStruct p
 
-newtype CtrlT m a = CtrlT { runCtrlT :: m (CtrlFlow a) }
-
-instance MonadTrans CtrlT where
-  lift = CtrlT . fmap (CtrlRegular . Ok)
-
-instance (Monad m) => Monad (CtrlT m) where
-  return = CtrlT . return . CtrlRegular . Ok
-
-  x >>= f = CtrlT $ do
-    v <- runCtrlT x
-    case v of
-      CtrlRegular (Fail rs) -> return . CtrlRegular $ Fail rs
-      CtrlRegular (Ok w) -> runCtrlT (f w)
-      CtrlException r s -> return (CtrlException r s)
-
-instance (Functor m) => Functor (CtrlT m) where
-  fmap f = CtrlT . fmap (fmap f) . runCtrlT
-
-instance (Functor m, Monad m) => Applicative (CtrlT m) where
-  pure = CtrlT . return . CtrlRegular . Ok
-
-  mf <*> mx = CtrlT $ do
-    mb_f <- runCtrlT mf
-    case mb_f of
-      CtrlException r s -> return (CtrlException r s)
-      CtrlRegular (Fail rs) -> return $ CtrlRegular (Fail rs)
-      CtrlRegular (Ok f) -> do
-        mb_x <- runCtrlT mx
-        case mb_x of
-          CtrlException r s -> return (CtrlException r s)
-          CtrlRegular (Fail rs) -> return $ CtrlRegular (Fail rs)
-          CtrlRegular (Ok x) -> return $ CtrlRegular (Ok $ f x)
-
--- Promote regular Error into CtrlT. This is used a lot because most functions won't
--- change the flow (won't return or something similar), so they return error. But things
--- like statements do, so anything just returning errors is wrapped with this.
-toCtrlT :: Monad m => Error a -> CtrlT m a
-toCtrlT = CtrlT . return . CtrlRegular
-
--- Used only once at the end of the program. Basically, don't allow program to
--- be in 'exception thrown' state, but treat is as an error.
-ctrlToError :: CtrlFlow a -> Error a
-ctrlToError (CtrlRegular err) = err
-ctrlToError (CtrlException expType _) = Fail $ EDUncoughtedExc (show expType) (getPos expType)
-
+-- Fucntions to catch and throw CtrlException:
 catchBreak :: Monad m => CtrlT m State -> CtrlT m State
 catchBreak st = do
   err_ <- lift $ runCtrlT st
@@ -375,7 +394,6 @@ dontAllowReturn st = do
 
 throw :: Monad m => ExcType -> State -> CtrlT m a
 throw v st = CtrlT . return $ CtrlException v st
-
 
 -- Functions used to enforce some commonly changed conditions in the Error monad.
 enforceParamLengthEqual :: PPos -> Int -> Int -> Error ()
@@ -458,7 +476,6 @@ enforceBind vId scopeN n p (State _ _ _ ((i, set):_))
   | Set.member vId set = return () -- Variable binded in the curr bind scope.
   | otherwise = Fail $ EDBind n p
 enforceBind _ _ _ _ (State _ _ _ []) = undefined -- We always have at least one bind rule
-                                                 -- in the scope.
 
 enforceVarIsNotReadOnly :: VarInfo -> PPos -> Error ()
 enforceVarIsNotReadOnly info p = when (viIsReadOnly info) $ Fail $ EDVarReadOnly p

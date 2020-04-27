@@ -148,6 +148,11 @@ getErrorMsg err fname = (showFCol (errorPos err) fname) ++ show err
     showFCol (Just (l, c)) fnm = fnm ++ ":" ++ show l ++ ":" ++ show c ++ ": "
     showFCol Nothing fnm = fnm ++ ": "
 
+-- Convert error back to a or die.
+nofail :: Show a => Error a -> a
+nofail (Ok x) = x
+nofail e = error $ "Unexpected error: " ++ show e
+
 -- Convert Maybe a to Error a. If value is Nothing return an error with
 -- provided description.
 errorFromMaybe :: ErrorDetail -> Maybe a -> Error a
