@@ -35,7 +35,8 @@ test:
 	./interpreter < ./tests.txt
 
 lint:
-	hlint ./src/Main.hs ./src/State.hs ./src/Parser.hs ./src/Common.hs
+	hlint ./src/AbsLanguage.hs ./src/Common.hs ./src/Error.hs ./src/Eval.hs \
+              ./src/Main.hs ./src/Parser.hs ./src/State.hs ./src/Static.hs
 
 validate:
 	@-cd ./test && ./validate.sh

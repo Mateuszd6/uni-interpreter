@@ -97,6 +97,17 @@ data Scope = Scope
   }
   deriving (Show)
 
+-- Avoid hardcodeing typeids.
+-- TODO: make sure they are used everywhere
+voidT :: Int
+voidT = 0
+intT :: Int
+intT = 1
+boolT :: Int
+boolT = 2
+stringT :: Int
+stringT = 3
+
 -- Commonly used aliases to get state members
 varsScope :: State -> Map.Map String VarId
 varsScope = scopeVars . stateScope

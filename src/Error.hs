@@ -142,7 +142,7 @@ instance Show ErrorDetail where
   show (EDVarNotInitialized _) = "Variable was not initialized."
 
 getErrorMsg :: ErrorDetail -> String -> String
-getErrorMsg err fname = (showFCol (errorPos err) fname) ++ show err
+getErrorMsg err fname = showFCol (errorPos err) fname ++ show err
   where
     showFCol :: PPos -> String -> String
     showFCol (Just (l, c)) fnm = fnm ++ ":" ++ show l ++ ":" ++ show c ++ ": "
