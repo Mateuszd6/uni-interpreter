@@ -17,6 +17,7 @@ import qualified Data.Set as Set
 
 import AbsLanguage
 import Common
+import Error
 import Parser
 import State
 
@@ -38,13 +39,13 @@ asTuple st p var = Fail $ EDTypeError "tuple" (getTypeName (varTypeId var) st) p
 
 asStruct :: State -> PPos -> Var -> Error (TypeId, Struct)
 asStruct _ _ (VStruct tId str) = return (tId, str)
-asStruct _ p _ = Fail $ EDVariableNotStruct p
+asStruct _ p _ = Fail $ EDVarNotStruct p
 
 -- Abstract commonly occurinng pattern of evaluating var and then checking its type.
-exprAs :: (State -> PPos -> Var -> Error a) -> Expr PPos -> State -> ErrorT IO (a, State)
+exprAs :: (State -> PPos -> Var -> Error a) -> Expr PPos -> State -> CtrlT IO (a, State)
 exprAs asF expr st = do
   (v, st') <- evalExpr expr st
-  x <- toErrorT $ asF st (getPos expr) v
+  x <- toCtrlT $ asF st (getPos expr) v
   return (x, st')
 
 -- Evaluates binary expresion with parametrized the func.
@@ -55,24 +56,24 @@ evalBinExpr :: (State -> PPos -> Var -> Error a) -> -- Convert Var to desired ty
                Expr PPos -> -- RHS expression.
                Maybe (a -> a -> PPos -> Error ()) -> -- Constraints for the vars.
                State ->
-               ErrorT IO (Var, State)
+               CtrlT IO (Var, State)
 
 evalBinExpr varTo func varCtor lhs rhs constr st = do
   -- The *Conv variables are unwraped value from vars with desired type.
   (evaledL, st') <- evalExpr lhs st
-  evaledLConv <- toErrorT $ varTo st (getPos lhs) evaledL
+  evaledLConv <- toCtrlT $ varTo st (getPos lhs) evaledL
 
   (evaledR, st'') <- evalExpr rhs st'
-  evaledRConv <- toErrorT $ varTo st (getPos rhs) evaledR
+  evaledRConv <- toCtrlT $ varTo st (getPos rhs) evaledR
 
-  toErrorT $ case constr of
+  toCtrlT $ case constr of
     Just f -> f evaledLConv evaledRConv $ getPos rhs
     Nothing -> return ()
 
   -- Now use the ctor to wrap calculated value back into Var type.
   return (varCtor $ evaledLConv `func` evaledRConv, st'')
 
-evalEqualExpr :: Bool -> Expr PPos -> Expr PPos -> State -> ErrorT IO (Var, State)
+evalEqualExpr :: Bool -> Expr PPos -> Expr PPos -> State -> CtrlT IO (Var, State)
 evalEqualExpr neg lhs rhs st =
   let tryComp :: Var -> Var -> Error Bool
       tryComp (VInt x) (VInt y) = return $ x == y
@@ -84,32 +85,32 @@ evalEqualExpr neg lhs rhs st =
   in do
     (evaledL, st') <- evalExpr lhs st
     (evaledR, st'') <- evalExpr rhs st'
-    comp <- toErrorT $ tryComp evaledL evaledR
+    comp <- toCtrlT $ tryComp evaledL evaledR
     return (VBool $ (if neg then not else id) comp, st'')
 
 -- Evalulate a list of expressions with foldr, return the list and a new
 -- state. Each expression is evaluated in a new state (right to left).
-evalExprsListr :: [Expr PPos] -> State -> ErrorT IO ([Var], State)
+evalExprsListr :: [Expr PPos] -> State -> CtrlT IO ([Var], State)
 evalExprsListr exprs st = do
   (vars, st') <- foldrM (\ex (vars, s) -> appendFst vars <$> evalExpr ex s) ([], st) exprs
-  toErrorT $ mapM_ (\(e, v) -> case v of
+  toCtrlT $ mapM_ (\(e, v) -> case v of
                                  VTuple _ -> Fail $ EDTupleNotAllowed (getPos e)
                                  _ -> return ())
     $ zip exprs vars
   return (vars, st')
 
-fnCallParams :: InvokeExprList PPos -> State -> ErrorT IO ([Var], State)
+fnCallParams :: InvokeExprList PPos -> State -> CtrlT IO ([Var], State)
 fnCallParams (IELEmpty _) st = return ([], st)
 fnCallParams (IELDefault _ exprs) st = evalExprsListr exprs st
 
 -- Value is returned in a tricky way through 'Flow', so it has to be catched.
-evalFunction :: Func -> [Var] -> PPos -> State -> ErrorT IO State
+evalFunction :: Func -> [Var] -> PPos -> State -> CtrlT IO State
 evalFunction func invokeP p st = do
   let foo = case funcBind func of
         Just x -> (scopeCnt st + 1, x) : bindVars st
         Nothing -> bindVars st
 
-  st' <- toErrorT $
+  st' <- toCtrlT $
     foldrM (\(par, (pname, spec, tId)) s -> enforceType par tId p s >>
              snd <$> createVar pname (varSpecReadOnly spec) par p s)
            st { scopeCnt = scopeCnt st + 1,
@@ -170,7 +171,7 @@ getBindVars (BdDefault p idents) st = fromMaybeList <$>
     fromMaybeList (Just l) = Just $ Set.fromList l
     fromMaybeList Nothing = Nothing
 
-returnHanlder :: Func -> PPos -> (ErrorT IO State -> ErrorT IO (Var, State))
+returnHanlder :: Func -> PPos -> (CtrlT IO State -> CtrlT IO (Var, State))
 returnHanlder func p =
   returnHndl p . dontAllowBreakContinue
   where
@@ -178,7 +179,7 @@ returnHanlder func p =
                    then expectReturnValue (funcRetT func)
                    else catchReturnVoid
 
-evalExpr :: Expr PPos -> State -> ErrorT IO (Var, State)
+evalExpr :: Expr PPos -> State -> CtrlT IO (Var, State)
 
 evalExpr (EInt _ intVal) st = do
   let res = VInt $ fromInteger intVal
@@ -210,43 +211,43 @@ evalExpr (ECat _ lhs rhs) st = evalBinExpr asString (++) VString lhs rhs Nothing
 evalExpr (EEq _ lhs rhs) st = evalEqualExpr False lhs rhs st
 evalExpr (ENeq _ lhs rhs) st = evalEqualExpr True lhs rhs st
 
-evalExpr (ELValue p (LValueVar _ (Ident vname))) st = toErrorT $
+evalExpr (ELValue p (LValueVar _ (Ident vname))) st = toCtrlT $
   (, st) . snd <$> getVar vname p st
 
 evalExpr (ELValue p lv@LValueMemb {}) st = do
-  (members, (_, var)) <- toErrorT $ lvalueMem lv st
-  structVar <- toErrorT $ asStruct st p var
-  toErrorT $ (, st) <$> getStructField structVar members p st
+  (members, (_, var)) <- toCtrlT $ lvalueMem lv st
+  structVar <- toCtrlT $ asStruct st p var
+  toCtrlT $ (, st) <$> getStructField structVar members p st
 
 evalExpr (ENew p (Ident name)) st = do
-  v <- toErrorT $ defaultVarOfType st . fst <$> getTypeStruct name p st
+  v <- toCtrlT $ defaultVarOfType st . fst <$> getTypeStruct name p st
   return (v, st)
 
 evalExpr (EFnCall p (Ident fname) params) st = do
-  func <- toErrorT $ snd <$> getFunc fname p st
+  func <- toCtrlT $ snd <$> getFunc fname p st
   (invokeParams, st') <- fnCallParams params st
 
-  toErrorT $ enforceParamLengthEqual p (length $ funcParams func) (length invokeParams)
-  toErrorT $ enforceFnCallBindRules fname func p st
+  toCtrlT $ enforceParamLengthEqual p (length $ funcParams func) (length invokeParams)
+  toCtrlT $ enforceFnCallBindRules fname func p st
 
   scope2 (returnHanlder func p . evalFunction func invokeParams p) Nothing st'
 
 evalExpr (EIife p (FDDefault _ params bind funRet stmts) invkParams) st = do
-  retT <- toErrorT $ parseRetType funRet st
-  fParams <- toErrorT $ funcToParams params st
+  retT <- toCtrlT $ parseRetType funRet st
+  fParams <- toCtrlT $ funcToParams params st
   (invokeParams, st') <- fnCallParams invkParams st
-  bindV <- toErrorT $ getBindVars bind st'
+  bindV <- toCtrlT $ getBindVars bind st'
 
   let body = SBlock p (BdNone Nothing) stmts
       func = Func (-1) body retT fParams bindV (stateScope st') (scopeCnt st')
 
-  toErrorT $ enforceParamLengthEqual p (length $ funcParams func) (length invokeParams)
+  toCtrlT $ enforceParamLengthEqual p (length $ funcParams func) (length invokeParams)
   -- No need to enforce bind rules, as iife is defined in the scope its used.
 
   scope2 (returnHanlder func p . evalFunction func invokeParams p) Nothing st'
 
 evalExpr (EScan _ types) st = do
-  toErrorT $ mapM_ enforceIsBultinType types
+  toCtrlT $ mapM_ enforceIsBultinType types
   line <- lift $ catchIOError getLine (\_ -> return [])
   let failedParse t l = (False, (False, defaultVal t) : l)
       vars = reverse $ snd $
@@ -276,8 +277,9 @@ varSpecReadOnly (VSReadOnly _) = True
 varSpecReadOnly _ = False
 
 evalVarDeclImpl :: VarSpec PPos -> String -> Var -> PPos -> State -> Error State
-evalVarDeclImpl spec vname var p st = snd <$>
-  createVar vname (varSpecReadOnly spec) var p st
+evalVarDeclImpl spec vname var p st = do
+  enforceVarIsNotVoid var p
+  snd <$> createVar vname (varSpecReadOnly spec) var p st
 
 evalVarAsgnImpl :: String -> Var -> PPos -> State -> Error State
 evalVarAsgnImpl vname asgnVal p st = do
@@ -285,22 +287,22 @@ evalVarAsgnImpl vname asgnVal p st = do
   enforceType var (varTypeId asgnVal) p st
   setVar vId asgnVal p st
 
-evalVarDecl :: VarDecl PPos -> State -> ErrorT IO State
+evalVarDecl :: VarDecl PPos -> State -> CtrlT IO State
 evalVarDecl (DVDecl p (Ident vname) spec tp) st = do
-  tId <- toErrorT $ getTypeId tp st
-  toErrorT $ evalVarDeclImpl spec vname (defaultVarOfType st tId) p st
+  tId <- toCtrlT $ getTypeId tp st
+  toCtrlT $ evalVarDeclImpl spec vname (defaultVarOfType st tId) p st
 
 evalVarDecl (DVDeclAsgn p (Ident vname) spec tp expr) st = do
   (v, st') <- evalExpr expr st
-  tId <- toErrorT $ getTypeId tp st'
-  toErrorT $ enforceType v tId (getPos expr) st'
-  toErrorT $ evalVarDeclImpl spec vname v p st'
+  tId <- toCtrlT $ getTypeId tp st'
+  toCtrlT $ enforceType v tId (getPos expr) st'
+  toCtrlT $ evalVarDeclImpl spec vname v p st'
 
 evalVarDecl (DVDeclDeduce p (Ident vname) spec expr) st = do
     (v, st') <- evalExpr expr st
-    toErrorT $ evalVarDeclImpl spec vname v p st'
+    toCtrlT $ evalVarDeclImpl spec vname v p st'
 
-evalIfStmtImpl :: Expr PPos -> Stmt PPos -> Maybe (Stmt PPos) -> State -> ErrorT IO State
+evalIfStmtImpl :: Expr PPos -> Stmt PPos -> Maybe (Stmt PPos) -> State -> CtrlT IO State
 evalIfStmtImpl expr stmt elseStmt st = do
   (cond, st') <- exprAs asBool expr st
   lift $ putStrLn $ "evaluated bool: " ++ show cond
@@ -326,23 +328,23 @@ funcToParams (FPList _ declParams) st =
   mapM (\(DDeclBasic _ (Ident n) spec t) -> (n, spec, ) <$> getTypeId t st) declParams
 
 tupleAsgnOrDeclImpl :: Bool -> [IdentOrIgnr PPos] -> [Var] -> PPos -> State
-                    -> ErrorT IO State
+                    -> CtrlT IO State
 tupleAsgnOrDeclImpl decl targs vs p st = do
-  zipped <- toErrorT
+  zipped <- toCtrlT
             $ errorFromMaybe (EDTupleNumbersDontMatch p (length targs) (length vs))
             $ tryZip targs vs
 
   let action = if decl then evalVarDeclImpl (VSNone Nothing) else evalVarAsgnImpl
-  toErrorT $ foldrM (\(tar, v) s ->
+  toCtrlT $ foldrM (\(tar, v) s ->
                        case tar of
                          IOIIgnore _ -> return s
                          IOIIdent pv (Ident name) -> action name v pv s)
                     st zipped
 
-tupleDeclImpl :: [IdentOrIgnr PPos] -> [Var] -> PPos -> State -> ErrorT IO State
+tupleDeclImpl :: [IdentOrIgnr PPos] -> [Var] -> PPos -> State -> CtrlT IO State
 tupleDeclImpl = tupleAsgnOrDeclImpl True
 
-tupleAsgnImpl :: [IdentOrIgnr PPos] -> [Var] -> PPos -> State -> ErrorT IO State
+tupleAsgnImpl :: [IdentOrIgnr PPos] -> [Var] -> PPos -> State -> CtrlT IO State
 tupleAsgnImpl = tupleAsgnOrDeclImpl False
 
 getStructMemebers :: StrcMembers PPos -> State -> Error [(String, TypeId)]
@@ -362,15 +364,15 @@ lvalueMem lv st =
   in
     (vmemb, ) <$> getVar vname p st
 
-evalStmt :: Stmt PPos -> State -> ErrorT IO State
+evalStmt :: Stmt PPos -> State -> CtrlT IO State
 
 evalStmt (SBlock _ bind stmts) st = do
-  bindV <- toErrorT $ getBindVars bind st
+  bindV <- toCtrlT $ getBindVars bind st
   scope (flip (foldM (flip evalStmt)) stmts) bindV st
 
 evalStmt (SAssert p expr) st = do
   (cond, st') <- exprAs asBool expr st
-  toErrorT $ unless cond $ Fail $ EDAssertFail p
+  toCtrlT $ unless cond $ Fail $ EDAssertFail p
   return st'
 
 evalStmt (SPrint _ exprs) st = do
@@ -385,7 +387,7 @@ evalStmt (SIfElse _ expr stmt elStmt) st =
 evalStmt (SWhile _ expr_ stmt_) st_ = scope (catchBreak . evalWhileImpl expr_ stmt_)
                                       Nothing st_
   where
-    evalWhileImpl :: Expr PPos -> Stmt PPos -> State -> ErrorT IO State
+    evalWhileImpl :: Expr PPos -> Stmt PPos -> State -> CtrlT IO State
     evalWhileImpl expr stmt st = do
       (cond, st') <- exprAs asBool expr st
       if cond
@@ -399,7 +401,7 @@ evalStmt e@(SFor p (Ident iterName) eStart eEnd stmt) st = do
   (end, st'') <- exprAs asInt eEnd st'
   let iters = if start <= end then [start .. end] else reverse [end .. start]
       loopStep i s = do
-        s' <- toErrorT $ evalVarDeclImpl (VSReadOnly p) iterName (VInt i) (getPos e) s
+        s' <- toCtrlT $ evalVarDeclImpl (VSReadOnly p) iterName (VInt i) (getPos e) s
         catchContinue $ evalStmt stmt s'
       loopBody s = catchBreak $ foldM (\acc i -> scope (loopStep i) Nothing acc) s iters
 
@@ -412,15 +414,15 @@ evalStmt (SVDecl _ vdecl) st = evalVarDecl vdecl st
 
 evalStmt (SFDecl p (Ident fname) (FDDefault _ params bd funRet stmts)) st = do
   lift $ putStrLn $ "Declaring function named `" ++ fname ++ "'."
-  retT <- toErrorT $ parseRetType funRet st
-  fParams <- toErrorT $ funcToParams params st
-  bindV <- toErrorT $ getBindVars bd st
+  retT <- toCtrlT $ parseRetType funRet st
+  fParams <- toCtrlT $ funcToParams params st
+  bindV <- toCtrlT $ getBindVars bd st
   let body = SBlock p (BdNone Nothing) stmts
-  toErrorT $ snd <$> createFunc fname body fParams retT bindV p st
+  toCtrlT $ snd <$> createFunc fname body fParams retT bindV p st
 
 evalStmt (SSDecl p (Ident sname) (SDDefault _ members)) st = do
-  strMembs <- toErrorT $ getStructMemebers members st
-  toErrorT $ snd <$> createStruct sname p strMembs st
+  strMembs <- toCtrlT $ getStructMemebers members st
+  toCtrlT $ snd <$> createStruct sname p strMembs st
 
 evalStmt (STDecl p (TTar _ targs) (EOTTuple _ exprs)) st = do
   (vs, st') <- evalExprsListr exprs st
@@ -443,9 +445,10 @@ evalStmt (STAssign p (TTar _ targs) (EOTRegular _ expr)) st = do
 
 evalStmt (SAssign p lv expr) st = do
   (asgnVal, st') <- evalExpr expr st
-  (membs, (vId, var)) <- toErrorT $ lvalueMem lv st'
+  toCtrlT $ enforceVarIsNotVoid asgnVal p
+  (membs, (vId, var)) <- toCtrlT $ lvalueMem lv st'
 
-  toErrorT $ case membs of
+  toCtrlT $ case membs of
     [] -> do -- Assign single variable.
       enforceType var (varTypeId asgnVal) p st'
       setVar vId asgnVal p st'
@@ -454,31 +457,29 @@ evalStmt (SAssign p lv expr) st = do
       newStruct <- assgnStructField (tId, struct) membs asgnVal p st'
       setVar vId (VStruct tId newStruct) p st'
 
-evalStmt (SReturn p (RExNone _)) st = toErrorT $ Flow (FRReturn p VEmpty) st
+evalStmt (SReturn p (RExNone _)) st = throw (ExReturn p VEmpty) st
 evalStmt (SReturn p (RExRegular _ (EOTRegular _ expr))) st = do
   (result, st') <- evalExpr expr st
-  toErrorT $ Flow (FRReturn p result) st'
+  throw (ExReturn p result) st'
 
 evalStmt (SReturn p (RExRegular _ (EOTTuple _ exprs))) st = do
   (result, st') <- evalExprsListr exprs st
-  toErrorT $ Flow (FRReturn p (VTuple result)) st'
+  throw (ExReturn p (VTuple result)) st'
 
-evalStmt (SBreak p) st = toErrorT $ Flow (FRBreak p) st
-evalStmt (SCont p) st = toErrorT $ Flow (FRContinue p) st
+evalStmt (SBreak p) st = throw (ExBreak p) st
+evalStmt (SCont p) st = throw (ExContinue p) st
 
-evalProgram :: Program PPos -> ErrorT IO ()
+evalProgram :: Program PPos -> CtrlT IO ()
 evalProgram (Prog _ stmts) = dontAllowBreakContinue $ dontAllowReturn $
                              foldM_ (flip evalStmt) initialState stmts
 
 run :: String -> String -> IO ()
 run fname pText = do
   -- This allows us to handle any kind of error in one place.
-  result <- runErrorT (toErrorT (parseProgram pText) >>= evalProgram)
-  case result of
-    Ok () -> exitSuccess
-    -- TODO: This can't happen:
-    Flow r _ -> printErr ("Flow is broken: " ++ show r ++ "\n") >> exitFailure
-    Fail reason -> printErr (errorMsg fname reason) >> exitFailure
+  result <- runCtrlT (toCtrlT (parseProgram pText) >>= evalProgram)
+  case ctrlToError result of
+    Ok _ -> exitSuccess
+    Fail reason -> printErr (getErrorMsg reason fname) >> exitFailure
 
 main :: IO ()
 main = do

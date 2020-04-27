@@ -2,6 +2,9 @@
 
 module Common where
 
+-- Parsing position. Used throughout whole program in error reporting.
+type PPos = Maybe (Int, Int)
+
 appendFst :: [a] -> (a, b) -> ([a], b)
 appendFst xs (x, b) = (x:xs, b)
 

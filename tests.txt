@@ -1,21 +1,8 @@
-bar :: struct {
-    q : int;
-    w : int;
-}
-
-foo :: struct {
-    x : int;
-    y : int;
-    meta : bar;
-}
-
-q : foo;
-print(q.meta.q);
-
 foo :: (x! : int, y : int) {
     y = 3;
-    x = 5;
 }
+
+x := foo(1, 2);
 
 foo(1, 2);
 

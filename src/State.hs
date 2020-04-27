@@ -9,8 +9,8 @@ import qualified Data.Set as Set
 
 import AbsLanguage
 import Common
-
-type PPos = Maybe (Int, Int)
+import Error
+import Parser
 
 type VarId = Int
 type FunId = Int
@@ -236,7 +236,7 @@ getTypeId (TUser p (Ident tname)) st =
   Map.lookup tname (typesScope st)
 
 getTypeDescr :: TypeId -> PPos -> State -> Error StructDef
-getTypeDescr tId p st = errorFromMaybe (EDVariableNotStruct p) $
+getTypeDescr tId p st = errorFromMaybe (EDVarNotStruct p) $
   Map.lookup tId $ storeTypes $ stateStore st
 
 -- Can't get the name from the scope throught reverse lookup, because the type can be
@@ -269,8 +269,8 @@ varTypeId (VStruct sId _) = sId -- Structs know their typeIDs.
 
 -- To avoid code duplication in scope and scope2.
 scopeA :: (a -> State) -> (a -> State -> a) ->
-         (State -> ErrorT IO a) ->
-         Maybe (Set.Set VarId) -> State -> ErrorT IO a
+         (State -> CtrlT IO a) ->
+         Maybe (Set.Set VarId) -> State -> CtrlT IO a
 scopeA getS setS fun bind st =
   let newBind = case bind of
                   Nothing -> bindVars st
@@ -282,231 +282,134 @@ scopeA getS setS fun bind st =
                                     bindVars = bindVars st }
     -- Rollbacks scope and bind vars after leaving the scope.
 
-scope :: (State -> ErrorT IO State) -> Maybe (Set.Set VarId) -> State
-      -> ErrorT IO State
+scope :: (State -> CtrlT IO State) -> Maybe (Set.Set VarId) -> State
+      -> CtrlT IO State
 scope = scopeA id (\_ x -> x)
 
-scope2 :: (State -> ErrorT IO (a, State)) -> Maybe (Set.Set VarId) -> State
-       -> ErrorT IO (a, State)
+scope2 :: (State -> CtrlT IO (a, State)) -> Maybe (Set.Set VarId) -> State
+       -> CtrlT IO (a, State)
 scope2 = scopeA snd (\(x, _) z -> (x, z))
 
 nofail :: Show a => Error a -> a
 nofail (Ok x) = x
 nofail e = error $ "Unexpected error: " ++ show e
 
-data ErrorDetail
-  = EDVarNotFound String PPos
-  | EDVarNotInitialized PPos
-  | EDFuncNotFound String PPos
-  | EDParsingError String
-  | EDTypeError String String PPos
-  | EDTypeNotFound String PPos
-  | EDUnexpectedBreak PPos
-  | EDUnexpectedContinue PPos
-  | EDUnexpectedReturn PPos
-  | EDNoReturn PPos
-  | EDNoReturnNonVoid PPos
-  | EDReturnVoid PPos
-  | EDInvalidNumParams PPos Int Int
-  | EDTupleNumbersDontMatch PPos Int Int
-  | EDTupleReturned PPos
-  | EDValueReturned PPos
-  | EDCantBePrimitiveType String PPos
-  | EDVariableNotStruct PPos
-  | EDNoMember PPos String String
-  | EDCantCompare PPos String String
-  | EDAssertFail PPos
-  | EDTupleNotAllowed PPos
-  | EDDivideByZero PPos
-  | EDVariableReadOnly PPos
-  | EDVarAlreadyDeclared PPos
-  | EDFuncAlreadyDeclared PPos
-  | EDTypeAlreadyDeclared PPos
-  | EDFuncArgRepeated String PPos
-  | EDStructArgRepeated String PPos
-  | EDBind String PPos
-  | EDCantUseWiderBind String PPos
-  | EDScanError String PPos -- Rename to not builtin type.
-
+data ExcType
+  = ExBreak PPos
+  | ExContinue PPos
+  | ExReturn PPos Var
   deriving (Show)
 
-showFCol :: PPos -> String -> String
-showFCol (Just (l, c)) fname = fname ++ ":" ++ show l ++ ":" ++ show c ++ ": "
-showFCol Nothing fname = fname ++ ": "
+instance Pos ExcType where
+  getPos (ExBreak pos) = pos
+  getPos (ExContinue pos) = pos
+  getPos (ExReturn pos _) = pos
 
-errorMsg :: String -> ErrorDetail -> String
-errorMsg fname (EDVarNotFound name p) = showFCol p fname ++ "Variable `" ++ name ++ "' not in scope."
-errorMsg fname (EDVarNotInitialized p) = showFCol p fname ++ "Variable was not initialized."
-errorMsg fname (EDFuncNotFound name p) = showFCol p fname ++ "Function `" ++ name ++ "' not in scope."
-errorMsg fname (EDParsingError str) = showFCol Nothing fname ++ "Parsing error: " ++ str ++ "."
-errorMsg fname (EDTypeError expected got p) = showFCol p fname ++ "Type error: "
-                                    ++ "expected `" ++ expected ++ "'"
-                                    ++ ", got `" ++ got ++ "'."
-errorMsg fname (EDTypeNotFound tname p) = showFCol p fname ++ "Type `" ++ tname ++ "' not in scope."
-errorMsg fname (EDUnexpectedBreak p) = showFCol p fname ++ "`break' is not allowed here."
-errorMsg fname (EDUnexpectedContinue p) = showFCol p fname ++ "`continue' is not allowed here."
-errorMsg fname (EDUnexpectedReturn p) = showFCol p fname ++ "`return' is not allowed here."
-errorMsg fname (EDNoReturn p) = showFCol p fname ++ "Function that returns a value didn't return."
-errorMsg fname (EDNoReturnNonVoid p) = showFCol p fname ++ "Void function cannot return a value."
-errorMsg fname (EDReturnVoid p) = showFCol p fname ++ "Return without a value when value was expected."
-errorMsg fname (EDInvalidNumParams p expected got) = showFCol p fname ++
-  "Invalid number of parameters. Expected " ++ show expected ++
-  ", but got " ++ show got ++ "."
-errorMsg fname (EDTupleNumbersDontMatch p l r) = showFCol p fname ++
-  "Numbers of elements in asigned tuples don't " ++
-  "much: left has " ++ show l ++ ", but right has " ++ show r ++ "."
-errorMsg fname (EDTupleReturned p) = showFCol p fname ++ "Tuple returned, when single variable expected."
-errorMsg fname (EDValueReturned p) = showFCol p fname ++ "Single variable returned, when tuple was expected."
-errorMsg fname (EDCantBePrimitiveType t p) = showFCol p fname ++
-                                   "Type must be a struct, not a primitive type." ++
-                                   " (Was: `" ++ t ++ "').";
-errorMsg fname (EDVariableNotStruct p) = showFCol p fname ++ "Variable or member is not a struct."
-errorMsg fname (EDNoMember p tname memb) = showFCol p fname ++ "Struct `" ++ tname ++ "'" ++
-                                 " has no member " ++ memb ++ "."
-errorMsg fname (EDCantCompare p l r) = showFCol p fname ++
-                                       "Can't compare types `" ++ l ++ "' and `" ++ r ++ "'. " ++
-                                       "Only builtin types with matching type can be compared."
-
-errorMsg fname (EDAssertFail p) = showFCol p fname ++ "Assertion failed."
-errorMsg fname (EDTupleNotAllowed p) = showFCol p fname ++ "Tuple is not allowed here."
-errorMsg fname (EDDivideByZero p) = showFCol p fname ++ "Divide by zero."
-errorMsg fname (EDVariableReadOnly p) = showFCol p fname ++ "Variable is read only."
-errorMsg fname (EDVarAlreadyDeclared p) = showFCol p fname ++ "Variable is already declared in the current scope."
-errorMsg fname (EDFuncAlreadyDeclared p) = showFCol p fname ++ "Function is already declared in the current scope."
-errorMsg fname (EDTypeAlreadyDeclared p) = showFCol p fname ++ "Struct is already declared in the current scope."
-errorMsg fname (EDFuncArgRepeated name p) = showFCol p fname ++ "Function argument named `" ++ name ++ "' is repeated more than once."
-errorMsg fname (EDStructArgRepeated name p) = showFCol p fname ++ "Struct member named `" ++ name ++ "' is repeated more than once."
-errorMsg fname (EDBind n p) = showFCol p fname ++ "Variable `" ++ n ++ "' is used, but not binded."
-errorMsg fname (EDCantUseWiderBind n p) = showFCol p fname ++ "Can't call function `" ++ n ++ "' because it refers to the wider scope than the current binded block does."
-errorMsg fname (EDScanError n p) = showFCol p fname ++ "Can't scan `" ++ n ++ "'. Not a builtin type."
-
-data FlowReason
-  = FRBreak PPos
-  | FRContinue PPos
-  | FRReturn PPos Var
+-- There are no exceptions, but return/break etc. statements sort of function like that.
+data CtrlFlow a
+  = CtrlRegular (Error a)
+  | CtrlException ExcType State
   deriving (Show)
 
-data Error a
-  = Ok a
-  | Flow FlowReason State
-  | Fail ErrorDetail
-  deriving (Show)
+instance Functor CtrlFlow where
+  fmap f (CtrlRegular a) = CtrlRegular $ f <$> a
+  fmap _ (CtrlException r s) = CtrlException r s
 
-instance Functor Error  where
-  fmap _ (Fail rs) = Fail rs
-  fmap _ (Flow r s) = Flow r s
-  fmap f (Ok a) = Ok (f a)
+newtype CtrlT m a = CtrlT { runCtrlT :: m (CtrlFlow a) }
 
-instance Applicative Error where
-  pure = Ok
+instance MonadTrans CtrlT where
+  lift = CtrlT . fmap (CtrlRegular . Ok)
 
-  Ok f <*> m = fmap f m
-  Flow r s <*> _m = Flow r s
-  Fail rs <*> _m = Fail rs
+instance (Monad m) => Monad (CtrlT m) where
+  return = CtrlT . return . CtrlRegular . Ok
 
-  Ok _m1 *> m2 = m2
-  Flow r s *> _m2 = Flow r s
-  Fail rs *> _m2 = Fail rs
+  x >>= f = CtrlT $ do
+    v <- runCtrlT x
+    case v of
+      CtrlRegular (Fail rs) -> return . CtrlRegular $ Fail rs
+      CtrlRegular (Ok w) -> runCtrlT (f w)
+      CtrlException r s -> return (CtrlException r s)
 
-instance Monad Error where
-  (Ok x) >>= k = k x
-  Flow r s >>= _ = Flow r s
-  Fail rs >>= _ = Fail rs
+instance (Functor m) => Functor (CtrlT m) where
+  fmap f = CtrlT . fmap (fmap f) . runCtrlT
 
-  (>>) = (*>)
+instance (Functor m, Monad m) => Applicative (CtrlT m) where
+  pure = CtrlT . return . CtrlRegular . Ok
 
-newtype ErrorT m a = ErrorT { runErrorT :: m (Error a) }
+  mf <*> mx = CtrlT $ do
+    mb_f <- runCtrlT mf
+    case mb_f of
+      CtrlException r s -> return (CtrlException r s)
+      CtrlRegular (Fail rs) -> return $ CtrlRegular (Fail rs)
+      CtrlRegular (Ok f) -> do
+        mb_x <- runCtrlT mx
+        case mb_x of
+          CtrlException r s -> return (CtrlException r s)
+          CtrlRegular (Fail rs) -> return $ CtrlRegular (Fail rs)
+          CtrlRegular (Ok x) -> return $ CtrlRegular (Ok $ f x)
 
-instance MonadTrans ErrorT where
-  lift = ErrorT . fmap Ok
+-- Promote regular Error into CtrlT. This is used a lot because most functions won't
+-- change the flow (won't return or something similar), so they return error. But things
+-- like statements do, so anything just returning errors is wrapped with this.
+toCtrlT :: Monad m => Error a -> CtrlT m a
+toCtrlT = CtrlT . return . CtrlRegular
 
-instance (Monad m) => Monad (ErrorT m) where
-  return = ErrorT . return . Ok
+-- Used only once at the end of the program. Basically, don't allow program to
+-- be in 'exception thrown' state, but treat is as an error.
+ctrlToError :: CtrlFlow a -> Error a
+ctrlToError (CtrlRegular err) = err
+ctrlToError (CtrlException expType _) = Fail $ EDUncoughtedExc (show expType) (getPos expType)
 
-  x >>= f = ErrorT $ do
-      v <- runErrorT x
-      case v of
-          Fail rs -> return $ Fail rs
-          Flow r s -> return $ Flow r s
-          Ok w -> runErrorT (f w)
-
-instance (Functor m) => Functor (ErrorT m) where
-  fmap f = ErrorT . fmap (fmap f) . runErrorT
-
-instance (Functor m, Monad m) => Applicative (ErrorT m) where
-  pure = ErrorT . return . Ok
-
-  mf <*> mx = ErrorT $ do
-      mb_f <- runErrorT mf
-      case mb_f of
-          Fail rs -> return $ Fail rs
-          Flow r s -> return $ Flow r s
-          Ok f -> do
-              mb_x <- runErrorT mx
-              case mb_x of
-                  Fail rs -> return $ Fail rs
-                  Flow r s -> return $ Flow r s
-                  Ok x  -> return (Ok (f x))
-
-  m *> k = m >> k
-
--- Convert Maybe a to Error a. If value is Nothing return an error with
--- provided description.
-errorFromMaybe :: ErrorDetail -> Maybe a -> Error a
-errorFromMaybe _ (Just x) = return x
-errorFromMaybe det Nothing = Fail det
-
--- Promote regular Error into ErrorT with any wrapped monad.
-toErrorT :: Monad m => Error a -> ErrorT m a
-toErrorT = ErrorT . return
-
-catchBreak :: Monad m => ErrorT m State -> ErrorT m State
+catchBreak :: Monad m => CtrlT m State -> CtrlT m State
 catchBreak st = do
-  err_ <- lift $ runErrorT st
-  toErrorT $ case err_ of
-    Flow (FRBreak _) s -> return s
+  err_ <- lift $ runCtrlT st
+  CtrlT . return $ case err_ of
+    CtrlException (ExBreak _) s -> CtrlRegular $ Ok s
     _ -> err_
 
-catchContinue :: Monad m => ErrorT m State -> ErrorT m State
+catchContinue :: Monad m => CtrlT m State -> CtrlT m State
 catchContinue st = do
-  err_ <- lift $ runErrorT st
-  toErrorT $ case err_ of
-    Flow (FRContinue _) s -> return s
+  err_ <- lift $ runCtrlT st
+  CtrlT . return $ case err_ of
+    CtrlException (ExContinue _) s -> CtrlRegular $ Ok s
     _ -> err_
 
-catchReturnVoid :: Monad m => PPos -> ErrorT m State -> ErrorT m (Var, State)
+catchReturnVoid :: Monad m => PPos -> CtrlT m State -> CtrlT m (Var, State)
 catchReturnVoid _ st = do
-  err_ <- lift $ runErrorT st
-  toErrorT $ case err_ of
-    Flow (FRReturn _ VEmpty) st' -> return (VEmpty, st')
-    Flow (FRReturn p _) _ -> Fail $ EDNoReturnNonVoid p
-    Ok st' -> return (VEmpty, st')
-    Flow x y -> Flow x y
-    Fail r -> Fail r
+  err_ <- lift $ runCtrlT st
+  CtrlT . return $ case err_ of
+    CtrlException (ExReturn _ VEmpty) st' -> CtrlRegular $ Ok (VEmpty, st')
+    CtrlException (ExReturn p _) _ -> CtrlRegular $ Fail $ EDNoReturnNonVoid p
+    CtrlException x y -> CtrlException x y
+    CtrlRegular (Ok st') -> CtrlRegular $ Ok (VEmpty, st')
+    CtrlRegular (Fail r) -> CtrlRegular $ Fail r
 
-expectReturnValue :: Monad m => FRetT -> PPos -> ErrorT m State -> ErrorT m (Var, State)
+expectReturnValue :: Monad m => FRetT -> PPos -> CtrlT m State -> CtrlT m (Var, State)
 expectReturnValue retT p st = do
-  err_ <- lift $ runErrorT st
-  toErrorT $ case err_ of
-    Flow (FRReturn p0 VEmpty) _ -> Fail $ EDReturnVoid p0
-    Flow (FRReturn p0 v) st' -> enforceRetType v retT p0 st' >> return (v, st')
-    Fail r -> Fail r
-    _ -> Fail $ EDNoReturn p
+  err_ <- lift $ runCtrlT st
+  CtrlT . return $ case err_ of
+    CtrlException (ExReturn p0 VEmpty) _ -> CtrlRegular $ Fail $ EDReturnVoid p0
+    CtrlException (ExReturn p0 v) st' -> CtrlRegular $ enforceRetType v retT p0 st' >> return (v, st')
+    CtrlRegular (Fail r) -> CtrlRegular $ Fail r
+    _ -> CtrlRegular $ Fail $ EDNoReturn p
 
-dontAllowBreakContinue :: Monad m => ErrorT m a -> ErrorT m a
+dontAllowBreakContinue :: Monad m => CtrlT m a -> CtrlT m a
 dontAllowBreakContinue st = do
-  err_ <- lift $ runErrorT st
-  toErrorT $ case err_ of
-    Flow (FRBreak p) _ -> Fail $ EDUnexpectedBreak p
-    Flow (FRContinue p) _ -> Fail $ EDUnexpectedContinue p
+  err_ <- lift $ runCtrlT st
+  CtrlT . return $ case err_ of
+    CtrlException (ExBreak p) _ -> CtrlRegular $ Fail $ EDUnexpectedBreak p
+    CtrlException (ExContinue p) _ -> CtrlRegular $ Fail $ EDUnexpectedContinue p
     _ -> err_
 
-dontAllowReturn :: Monad m => ErrorT m a -> ErrorT m a
+dontAllowReturn :: Monad m => CtrlT m a -> CtrlT m a
 dontAllowReturn st = do
-  err_ <- lift $ runErrorT st
-  toErrorT $ case err_ of
-    Flow (FRReturn p _) _ -> Fail $ EDUnexpectedReturn p
+  err_ <- lift $ runCtrlT st
+  CtrlT . return $ case err_ of
+    CtrlException (ExReturn p _) _ -> CtrlRegular $ Fail $ EDUnexpectedReturn p
     _ -> err_
+
+throw :: Monad m => ExcType -> State -> CtrlT m a
+throw v st = CtrlT . return $ CtrlException v st
 
 
 -- Functions used to enforce some commonly changed conditions in the Error monad.
@@ -531,6 +434,10 @@ enforceRetType _ (FRetTTuple _) p _ = Fail $ EDValueReturned p
 
 enforce0div :: Int -> Int -> PPos -> Error ()
 enforce0div _ d p = when (d == 0) $ Fail $ EDDivideByZero p
+
+enforceVarIsNotVoid :: Var -> PPos -> Error ()
+enforceVarIsNotVoid VEmpty p = Fail $ EDVarIsVoid p
+enforceVarIsNotVoid _ _  = return ()
 
 enforceIsBultinType :: Type PPos -> Error ()
 enforceIsBultinType (TInt _) = return ()
@@ -586,7 +493,7 @@ enforceBind vId scopeN n p (State _ _ _ ((i, set):_))
   | Set.member vId set = return () -- Variable binded in the curr bind scope.
   | otherwise = Fail $ EDBind n p
 enforceBind _ _ _ _ (State _ _ _ []) = undefined -- We always have at least one bind rule
-                                                 -- in the scope:
+                                                 -- in the scope.
 
 enforceVarIsNotReadOnly :: VarInfo -> PPos -> Error ()
-enforceVarIsNotReadOnly info p = when (viIsReadOnly info) $ Fail $ EDVariableReadOnly p
+enforceVarIsNotReadOnly info p = when (viIsReadOnly info) $ Fail $ EDVarReadOnly p
