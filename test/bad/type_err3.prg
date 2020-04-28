@@ -9,4 +9,4 @@ str_var2 : string = "bar";
 _ = int_var == int_var2; // Compare ints.
 _ = str_var == str_var2; // Compare strings.
 _ = int_var == str_var; // Fails with type error, can't compare.
-die ("Not reached.");
+assert: false; // Not reached.

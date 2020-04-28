@@ -1,6 +1,5 @@
-foo :: (x : int, y : int) -> int {
-    return x * y;
-}
+assert: false; // Not reached.
 
-
-foo(1, 2);
+x : int = (x : int) -> int {
+  return 4 + x;
+}();

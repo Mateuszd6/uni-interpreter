@@ -9,11 +9,12 @@ import Error
 import Parser
 import State
 
--- EOTRegular a (Expr a)
--- EOTTuple a [Expr a]
-
 staticChckProgram :: Program PPos -> Error ()
 staticChckProgram (Prog _ stmts) = foldM_ (flip staticChkStmt) initialState stmts
+
+defaultReturnType :: FRetT -> State -> Var
+defaultReturnType (FRetTSinge tId) st = defaultVarOfType st tId
+defaultReturnType (FRetTTuple tIds) st = VTuple $ map (defaultVarOfType st) tIds
 
 checkScope :: (State -> Error State) -> Maybe (Set.Set VarId) -> State
            -> Error State
@@ -56,6 +57,27 @@ staticChkBinExpr asF tId lhs rhs st = do
   shouldBe asF rhs st
   return $ defaultVarOfType st tId
 
+staticChkFnCallImpl :: Func -> InvokeExprList PPos -> PPos -> State -> Error Var
+staticChkFnCallImpl func invokeL p st = do
+  let invokeParams = case invokeL of
+                       IELDefault _ exprs -> exprs
+                       IELEmpty _ -> []
+  enforceParamLengthEqual p (length $ funcParams func) (length invokeParams)
+
+  -- Check params
+  mapM_ (\(t, e) -> staticChkExpr e st >>= \v -> enforceType v t (getPos e) st) $
+    zip (map thrd3 $ funcParams func) invokeParams
+
+  return $ defaultReturnType (funcRetT func) st
+
+staticChkFnBody :: Stmt PPos -> [Param] -> PPos -> State -> Error ()
+staticChkFnBody body fParams p st = do
+  let addParam param s = snd <$> createVar (fst3 param) False
+                          (defaultVarOfType st (thrd3 param)) p s
+  _ <- checkScope (staticChkStmt body) Nothing =<< (foldM (flip addParam) st fParams)
+  -- _ <- staticChkStmt body =<< foldM (flip addParam) st fParams
+  return ()
+
 staticChkEqExpr :: Expr PPos -> Expr PPos -> State -> Error Var
 staticChkEqExpr lhs rhs st =
   -- TODO: rename to enforceComprarable and move somewhere merge with eval.
@@ -72,17 +94,17 @@ staticChkEqExpr lhs rhs st =
     _ <- canComp v1 v2
     return $ defaultVarOfType st boolT
 
--- TODO: The trick is that evaluating expressions can't change the state in any
--- meaningfull way beacuse single expresion can't change a type or create a new
--- one.
+-- The trick is that evaluating expressions can't change the state in any
+-- meaningfull way to the type checker beacuse single expresion can't change a
+-- var/func/type or create a new one.
 staticChkExpr :: Expr PPos -> State -> Error Var
 staticChkExpr (ELor _ lhs rhs) st = staticChkBinExpr asBool boolT lhs rhs st
 staticChkExpr (ELand _ lhs rhs) st = staticChkBinExpr asBool boolT lhs rhs st
 staticChkExpr (EXor _ lhs rhs) st = staticChkBinExpr asBool boolT lhs rhs st
 staticChkExpr (EGeq _ lhs rhs) st = staticChkBinExpr asInt boolT lhs rhs st
-staticChkExpr (ELeq _ lhs rhs) st = staticChkBinExpr asBool boolT lhs rhs st
-staticChkExpr (EGt _ lhs rhs) st = staticChkBinExpr asBool boolT lhs rhs st
-staticChkExpr (ELt _ lhs rhs) st = staticChkBinExpr asBool boolT lhs rhs st
+staticChkExpr (ELeq _ lhs rhs) st = staticChkBinExpr asInt boolT lhs rhs st
+staticChkExpr (EGt _ lhs rhs) st = staticChkBinExpr asInt boolT lhs rhs st
+staticChkExpr (ELt _ lhs rhs) st = staticChkBinExpr asInt boolT lhs rhs st
 staticChkExpr (EPlus _ lhs rhs) st = staticChkBinExpr asInt intT lhs rhs st
 staticChkExpr (EMinus _ lhs rhs) st = staticChkBinExpr asInt intT lhs rhs st
 staticChkExpr (ECat _ lhs rhs) st = staticChkBinExpr asString stringT lhs rhs st
@@ -94,12 +116,24 @@ staticChkExpr (EPow _ lhs rhs) st = staticChkBinExpr asInt intT lhs rhs st
 staticChkExpr (EEq _ lhs rhs) st = staticChkEqExpr lhs rhs st
 staticChkExpr (ENeq _ lhs rhs) st = staticChkEqExpr lhs rhs st
 
--- TODO: Check arg types and return a sample of returned type value.
-staticChkExpr (EFnCall _ (Ident name) invokeL) st = undefined
-staticChkExpr (EScan _ types) st = undefined
-staticChkExpr (EIife _ funDecl invokeL) st = undefined -- TODO: Like fnCall
+staticChkExpr (EFnCall p (Ident name) invokeL) st = do
+  func <- snd <$> getFunc name p st
+  staticChkFnCallImpl func invokeL p st
+
+staticChkExpr (EScan _ types) st = return $ defaultVarOfType st 4 -- TODO: Change it for tuples.
+
+staticChkExpr (EIife p (FDDefault _ params _ funRet stmts) invokeL) st = do
+  retT <- parseRetType funRet st
+  fParams <- funcToParams params st
+
+  let body = SBlock p (BdNone Nothing) stmts
+      func = Func (-1) body retT fParams Nothing (stateScope st) (scopeCnt st)
+
+  staticChkFnBody body fParams p st
+  staticChkFnCallImpl func invokeL p st
+
 staticChkExpr (ELValue _ lValue) st = getLValue lValue st
-staticChkExpr (ENew _ (Ident name)) st = undefined
+staticChkExpr (ENew p (Ident name)) st = defaultVarOfType st <$> getTypeId (TUser p (Ident name)) st  -- TODO
 staticChkExpr (EString _ _) st = return $ defaultVarOfType st stringT
 staticChkExpr (EInt _ _) st = return $ defaultVarOfType st intT
 staticChkExpr (EBool _ _) st = return $ defaultVarOfType st boolT
@@ -137,7 +171,7 @@ staticChkStmt (SVDecl p (DVDecl _ (Ident name) _ tp)) st = do
 staticChkStmt (SVDecl p (DVDeclAsgn _ (Ident name) _ tp expr)) st = do
   tId <- getTypeId tp st
   v <- staticChkExpr expr st
-  enforceType v tId p st
+  enforceType v tId (getPos expr) st
   snd <$> createVar name False v p st
 
 staticChkStmt (SVDecl p (DVDeclDeduce _ (Ident name) _ expr)) st = do
@@ -147,19 +181,26 @@ staticChkStmt (SVDecl p (DVDeclDeduce _ (Ident name) _ expr)) st = do
 staticChkStmt (SFDecl p (Ident fname) (FDDefault _ params _ funRet stmts)) st = do
   retT <- parseRetType funRet st
   fParams <- funcToParams params st
-  -- bindV <- toCtrlT $ getBindVars bd st -- TODO: Decide if we support bind or not!
-  let addParam param st = snd <$> createVar (fst3 param) False
-                                    (defaultVarOfType st (thrd3 param)) p st
-      body = SBlock p (BdNone Nothing) stmts
-  st' <- foldM (\s x -> addParam x s) st fParams
-  staticChkStmt body st -- TODO: add args here.
+  enforceNotParamRepeated (map fst3 fParams) (flip EDFuncArgRepeated p)
+  let body = SBlock p (BdNone Nothing) stmts
+  staticChkFnBody body fParams p st
   snd <$> createFunc fname body fParams retT Nothing p st
 
 staticChkStmt (SSDecl p (Ident sname) (SDDefault _ members)) st = do
   strMembs <- getStructMemebers members st
   snd <$> createStruct sname p strMembs st
 
-staticChkStmt (STDecl _ tupleTarg exprOrTuple) st = return st -- TODO
+
+staticChkStmt (STDecl p (TTar a idents) (EOTRegular _ expr)) st = do
+  exprVar <- staticChkExpr expr st
+  case exprVar of
+    VTuple vars -> addTupleToStateImpl idents vars p st
+    _ -> Fail $ EDTypeError "tuple" (getTypeName (varTypeId exprVar) st) p
+
+staticChkStmt (STDecl p (TTar a idents) (EOTTuple _ exprs)) st = do
+  vars <- mapM (\e -> staticChkExpr e st) exprs
+  addTupleToStateImpl idents vars p st
+
 staticChkStmt (SAssign _ lValue expr) st = return st -- TODO
 staticChkStmt (STAssign _ tupleTarg exprOrTuple) st = return st -- TODO
 staticChkStmt (SIgnore _ exprOrTuple) st = return st -- TODO: Must evauate expr, because it can be an iife!
@@ -169,3 +210,15 @@ staticChkStmt (SCont a) st = return st
 staticChkStmt (SAssert _ expr) st = shouldBe asBool expr st >> return st
 staticChkStmt (SPrint _ exprs) st = return st -- TODO: Assert that elems are printable? Don't allow void?
 staticChkStmt (SBlock _ bind stmts) st = checkScope (flip (foldM (flip staticChkStmt)) stmts) Nothing st
+
+
+addTupleToStateImpl :: [IdentOrIgnr PPos] -> [Var] -> PPos -> State -> Error State
+addTupleToStateImpl idents vars p st = do
+  zipped <- errorFromMaybe (EDTupleNumbersDontMatch p (length idents) (length vars)) $
+            tryZip idents vars
+
+  foldrM (\(tar, v) s ->
+             case tar of
+               IOIIgnore _ -> return s
+               IOIIdent pv (Ident name) -> snd <$> createVar name False v pv s)
+    st zipped

@@ -310,6 +310,7 @@ getTypeName tId st
   | tId == 4 = "tuple"
   | otherwise = strctName $ nofail $ getTypeDescr tId Nothing st
 
+-- Can't fail, if we have a typeId it means there type actually exits.
 defaultVarOfType :: State -> TypeId -> Var
 defaultVarOfType _ 0 = VEmpty -- Should not happen
 defaultVarOfType _ 1 = VInt 0

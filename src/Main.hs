@@ -20,14 +20,15 @@ import State
 
 run :: String -> String -> IO ()
 run fname pText = do
+  result <- runCtrlT $ do
+    parsed <- toCtrlT $ parseProgram pText
+    toCtrlT $ staticChckProgram parsed -- Static typecheck
+    evalProgram parsed
+
   -- This allows us to handle any kind of error in one place.
-  result <- runCtrlT (toCtrlT (parseProgram pText) >>= evalProgram)
   case ctrlToError result of
     Ok _ -> exitSuccess
     Fail reason -> printErr (getErrorMsg reason fname) >> exitFailure
-  -- case (parseProgram pText >>= staticChckProgram) of
-    -- Ok _ -> putStrLn "Static check OK."
-    -- Fail reason -> printErr (getErrorMsg reason fname) >> exitFailure
 
 main :: IO ()
 main = do

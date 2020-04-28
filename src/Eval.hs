@@ -267,9 +267,9 @@ evalIfStmtImpl expr stmt elseStmt st = do
 tupleAsgnOrDeclImpl :: Bool -> [IdentOrIgnr PPos] -> [Var] -> PPos -> State
                     -> CtrlT IO State
 tupleAsgnOrDeclImpl decl targs vs p st = do
-  zipped <- toCtrlT
-            $ errorFromMaybe (EDTupleNumbersDontMatch p (length targs) (length vs))
-            $ tryZip targs vs
+  zipped <- toCtrlT $
+            errorFromMaybe (EDTupleNumbersDontMatch p (length targs) (length vs)) $
+            tryZip targs vs
 
   let action = if decl then evalVarDeclImpl (VSNone Nothing) else evalVarAsgnImpl
   toCtrlT $ foldrM (\(tar, v) s ->
