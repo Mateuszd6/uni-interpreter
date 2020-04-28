@@ -1,0 +1,6 @@
+foo :: (x : int, y : int) -> int {
+    return x * y;
+}
+
+
+foo(1, 2);

@@ -8,6 +8,15 @@ type PPos = Maybe (Int, Int)
 appendFst :: [a] -> (a, b) -> ([a], b)
 appendFst xs (x, b) = (x:xs, b)
 
+fst3 :: (a, b, c) -> a
+fst3 (x, _, _) = x
+
+snd3 :: (a, b, c) -> b
+snd3 (_, y, _) = y
+
+thrd3 :: (a, b, c) -> c
+thrd3 (_, _, z) = z
+
 countIf :: (a -> Bool) -> [a] -> Int
 countIf = countIfImpl 0
   where

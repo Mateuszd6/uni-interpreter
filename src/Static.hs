@@ -1,6 +1,6 @@
 module Static where
 
-import Control.Monad (foldM)
+import Control.Monad (foldM, foldM_, when, (<=<))
 import qualified Data.Set as Set
 
 import AbsLanguage
@@ -8,6 +8,12 @@ import Common
 import Error
 import Parser
 import State
+
+-- EOTRegular a (Expr a)
+-- EOTTuple a [Expr a]
+
+staticChckProgram :: Program PPos -> Error ()
+staticChckProgram (Prog _ stmts) = foldM_ (flip staticChkStmt) initialState stmts
 
 checkScope :: (State -> Error State) -> Maybe (Set.Set VarId) -> State
            -> Error State
@@ -22,11 +28,26 @@ checkScope fun bind st =
                   bindVars = bindVars st }
     -- Rollbacks scope and bind vars after leaving the scope.
 
+getLValue :: LValue PPos -> State -> Error Var
+getLValue (LValueVar p (Ident vname)) st = snd <$> getVar vname p st
+getLValue lv@LValueMemb {} st = do
+  (members, (_, var)) <- lvalueMem lv st
+  structVar <- asStruct st (getPos lv) var
+  getStructField structVar members (getPos lv) st
+
 shouldBe :: (State -> PPos -> Var -> Error a) -> Expr PPos -> State -> Error ()
 shouldBe asF expr st = do
   v <- staticChkExpr expr st
   _ <- asF st (getPos expr) v
   return ()
+
+-- TODO: Decide if it lives or not.
+-- checkExprList :: (Var -> Bool) -> (Expr PPos -> Var -> ErrorDetail) -> [Expr PPos] -> State
+              -- -> Error ()
+-- checkExprList checkFun edFun exprs st =
+  -- let check expr = staticChkExpr expr st >>= \v -> when (checkFun v) $ Fail $ edFun expr v
+  -- in
+    -- mapM_ check exprs
 
 staticChkBinExpr :: (State -> PPos -> Var -> Error a) -> TypeId -> Expr PPos -> Expr PPos
                  -> State -> Error Var
@@ -77,7 +98,7 @@ staticChkExpr (ENeq _ lhs rhs) st = staticChkEqExpr lhs rhs st
 staticChkExpr (EFnCall _ (Ident name) invokeL) st = undefined
 staticChkExpr (EScan _ types) st = undefined
 staticChkExpr (EIife _ funDecl invokeL) st = undefined -- TODO: Like fnCall
-staticChkExpr (ELValue _ lValue) st = undefined
+staticChkExpr (ELValue _ lValue) st = getLValue lValue st
 staticChkExpr (ENew _ (Ident name)) st = undefined
 staticChkExpr (EString _ _) st = return $ defaultVarOfType st stringT
 staticChkExpr (EInt _ _) st = return $ defaultVarOfType st intT
@@ -93,16 +114,13 @@ staticChkStmt (SIfElse _ expr stmtIf stmtElse) st = do
   shouldBe asBool expr st
   _ <- staticChkStmt stmtIf st
   _ <- staticChkStmt stmtElse st
-  -- The return state does not matter, becasue both if end else stmts
-  -- have separate scope.
-  return st
+  return st -- The return state does not matter, both if and else are scoped.
 
-staticChkStmt (SFor _ (Ident name) exprB exprE stmt) st = do
+staticChkStmt (SFor p (Ident name) exprB exprE stmt) st = do
   shouldBe asInt exprB st
   shouldBe asInt exprE st
-  _ <- checkScope (staticChkStmt stmt) Nothing st
-  -- TODO: Eval stmt in scope with iter var of type int.
-  return st
+  checkScope ((staticChkStmt stmt . snd) <=< createVar name False (VInt 0) p)
+             Nothing st
 
 staticChkStmt (SWhile _ expr stmt) st = do
   shouldBe asBool expr st
@@ -110,15 +128,41 @@ staticChkStmt (SWhile _ expr stmt) st = do
 
 staticChkStmt (SExpr _ expr) st = do
   staticChkExpr expr st
-  return st -- TODO: describe the hack
+  return st
 
-staticChkStmt (SVDecl _ varDecl) st = return st -- TODO
-staticChkStmt (SFDecl _ (Ident name) funDecl) st = return st -- TODO
-staticChkStmt (SSDecl _ (Ident name) strcDecl) st = return st -- TODO
+staticChkStmt (SVDecl p (DVDecl _ (Ident name) _ tp)) st = do
+  tId <- getTypeId tp st
+  snd <$> createVar name False (defaultVarOfType st tId) p st
+
+staticChkStmt (SVDecl p (DVDeclAsgn _ (Ident name) _ tp expr)) st = do
+  tId <- getTypeId tp st
+  v <- staticChkExpr expr st
+  enforceType v tId p st
+  snd <$> createVar name False v p st
+
+staticChkStmt (SVDecl p (DVDeclDeduce _ (Ident name) _ expr)) st = do
+  v <- staticChkExpr expr st
+  snd <$> createVar name False v p st
+
+staticChkStmt (SFDecl p (Ident fname) (FDDefault _ params _ funRet stmts)) st = do
+  retT <- parseRetType funRet st
+  fParams <- funcToParams params st
+  -- bindV <- toCtrlT $ getBindVars bd st -- TODO: Decide if we support bind or not!
+  let addParam param st = snd <$> createVar (fst3 param) False
+                                    (defaultVarOfType st (thrd3 param)) p st
+      body = SBlock p (BdNone Nothing) stmts
+  st' <- foldM (\s x -> addParam x s) st fParams
+  staticChkStmt body st -- TODO: add args here.
+  snd <$> createFunc fname body fParams retT Nothing p st
+
+staticChkStmt (SSDecl p (Ident sname) (SDDefault _ members)) st = do
+  strMembs <- getStructMemebers members st
+  snd <$> createStruct sname p strMembs st
+
 staticChkStmt (STDecl _ tupleTarg exprOrTuple) st = return st -- TODO
 staticChkStmt (SAssign _ lValue expr) st = return st -- TODO
 staticChkStmt (STAssign _ tupleTarg exprOrTuple) st = return st -- TODO
-staticChkStmt (SIgnore _ exprOrTuple) st = return st
+staticChkStmt (SIgnore _ exprOrTuple) st = return st -- TODO: Must evauate expr, because it can be an iife!
 staticChkStmt (SReturn _ retExpr) st = return st -- TODO
 staticChkStmt (SBreak a) st = return st
 staticChkStmt (SCont a) st = return st

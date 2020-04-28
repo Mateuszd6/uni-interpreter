@@ -97,31 +97,6 @@ evalFunction func invokeP p st = do
 
   evalStmt (funcBody func) st'
 
-getStructFieldType :: TypeId -> String -> PPos -> State -> Error TypeId
-getStructFieldType tId field p st = do
-  strctDescr <- getTypeDescr tId p st
-  errorFromMaybe (EDNoMember p (getTypeName tId st) field) $
-                 Map.lookup field (strctFields strctDescr)
-
-getStructFieldImpl :: (TypeId, Struct) -> String -> PPos -> State
-                   -> Error (TypeId, Struct)
-getStructFieldImpl (tId, struct) field p st = do
-  destTypeId <- getStructFieldType tId field p st
-  destVar <- errorFromMaybe (EDNoMember p (getTypeName tId st) field) $
-             Map.lookup field struct
-  (destTypeId, ) . snd <$> asStruct st p destVar
-
-getStructField :: (TypeId, Struct) -> [String] -> PPos -> State -> Error Var
-getStructField (tId, struct) [n] p st =
-  errorFromMaybe (EDNoMember p (getTypeName tId st) n) $
-    Map.lookup n struct
-
-getStructField (tId, struct) (n:ns) p st = do
-  (destTypeId, destStruct) <- getStructFieldImpl (tId, struct) n p st
-  getStructField (destTypeId, destStruct) ns p st
-
-getStructField _ [] _ _ = undefined -- Would not parse.
-
 assgnStructField :: (TypeId, Struct) -> [String] -> Var -> PPos -> State -> Error Struct
 assgnStructField (tId, struct) [n] asgnVal p st = do
   destTypeId <- getStructFieldType tId n p st
@@ -289,21 +264,6 @@ evalIfStmtImpl expr stmt elseStmt st = do
            Just s -> evalStmt s st'
            Nothing -> return st'
 
-parseRetType :: FuncRetT PPos -> State -> Error FRetT
-parseRetType (FRTEmpty _) _ = return $ FRetTSinge 0
-parseRetType (FRTSingle _ t) st = FRetTSinge <$> getTypeId t st
-parseRetType (FRTTuple _ types) st = FRetTTuple <$>
-  foldrM (\a b -> flip (:) b <$> getTypeId a st) [] types
-
-funcReturnsVoid :: FRetT -> Bool
-funcReturnsVoid (FRetTSinge 0) = True
-funcReturnsVoid _ = False
-
-funcToParams :: FunParams PPos -> State -> Error [Param]
-funcToParams (FPEmpty _) _ = return []
-funcToParams (FPList _ declParams) st =
-  mapM (\(DDeclBasic _ (Ident n) spec t) -> (n, spec, ) <$> getTypeId t st) declParams
-
 tupleAsgnOrDeclImpl :: Bool -> [IdentOrIgnr PPos] -> [Var] -> PPos -> State
                     -> CtrlT IO State
 tupleAsgnOrDeclImpl decl targs vs p st = do
@@ -323,23 +283,6 @@ tupleDeclImpl = tupleAsgnOrDeclImpl True
 
 tupleAsgnImpl :: [IdentOrIgnr PPos] -> [Var] -> PPos -> State -> CtrlT IO State
 tupleAsgnImpl = tupleAsgnOrDeclImpl False
-
-getStructMemebers :: StrcMembers PPos -> State -> Error [(String, TypeId)]
-getStructMemebers (SMEmpty _) _ = return []
-getStructMemebers (SMDefault _ members) st =
-  foldrM (\(DStrMem _ (Ident name) tp) acc -> flip (:) acc . (name, ) <$>
-                                              getTypeId tp st)
-         [] members
-
--- First member is a list of accessed fields, second is a variable.
-lvalueMem :: LValue PPos -> State -> Error ([String], (VarId, Var))
-lvalueMem lv st =
-  let lvalueMemImpl :: LValue PPos -> [String] -> ([String], PPos, String)
-      lvalueMemImpl (LValueVar p0 (Ident name)) fs = (fs, p0, name)
-      lvalueMemImpl (LValueMemb _ v (Ident name)) fs = lvalueMemImpl v $ name:fs
-      (vmemb, p, vname) = lvalueMemImpl lv []
-  in
-    (vmemb, ) <$> getVar vname p st
 
 evalStmt :: Stmt PPos -> State -> CtrlT IO State
 

@@ -1,4 +1,6 @@
-module State where -- TODO: rename to runtime?
+{-# LANGUAGE TupleSections #-}
+
+module State where
 
 import Control.Monad (when, unless)
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
@@ -216,7 +218,7 @@ createFunc name body params ret bind p st@(State c str@Store { nextFuncId = next
       func = Func next body ret params bind scp' c
   in do
     enforceNotAlreadyDefined name fScopeN (funcsScope st) (funcsStore st) c (EDFuncAlreadyDeclared p)
-    enforceNotParamRepeated (map (\(x, _, _) -> x) params) (flip EDFuncArgRepeated p)
+    enforceNotParamRepeated (map fst3 params) (flip EDFuncArgRepeated p)
     return (next, st{
                stateStore = str{ storeFuncs = storeFuncs', nextFuncId = next + 1 },
                stateScope = scp' })
@@ -253,6 +255,21 @@ getFunc fname p st = errorFromMaybe (EDFuncNotFound fname p) $
     fId <- Map.lookup fname (funcsScope st)
     func <- Map.lookup fId (funcsStore st)
     return (fId, func)
+
+parseRetType :: FuncRetT PPos -> State -> Error FRetT
+parseRetType (FRTEmpty _) _ = return $ FRetTSinge 0
+parseRetType (FRTSingle _ t) st = FRetTSinge <$> getTypeId t st
+parseRetType (FRTTuple _ types) st = FRetTTuple <$>
+  foldrM (\a b -> flip (:) b <$> getTypeId a st) [] types
+
+funcReturnsVoid :: FRetT -> Bool
+funcReturnsVoid (FRetTSinge 0) = True
+funcReturnsVoid _ = False
+
+funcToParams :: FunParams PPos -> State -> Error [Param]
+funcToParams (FPEmpty _) _ = return []
+funcToParams (FPList _ declParams) st =
+  mapM (\(DDeclBasic _ (Ident n) spec t) -> (n, spec, ) <$> getTypeId t st) declParams
 
 getTypeStruct :: String -> PPos -> State -> Error (TypeId, StructDef)
 getTypeStruct name p st = errorFromMaybe (EDTypeNotFound name p) $
@@ -302,13 +319,53 @@ defaultVarOfType _ 4 = VTuple [] -- Should no happen
 defaultVarOfType st sId = VStruct sId $ Map.map (defaultVarOfType st) $ strctFields $
                           fromJust $ Map.lookup sId (typesStore st)
 
-varTypeId :: Var -> Int
+varTypeId :: Var -> TypeId
 varTypeId VEmpty = 0
 varTypeId (VInt _) = 1
 varTypeId (VBool _) = 2
 varTypeId (VString _) = 3
 varTypeId (VTuple _) = 4 -- Tuple variables are only used when returning values.
 varTypeId (VStruct sId _) = sId -- Structs know their typeIDs.
+
+getStructFieldType :: TypeId -> String -> PPos -> State -> Error TypeId
+getStructFieldType tId field p st = do
+  strctDescr <- getTypeDescr tId p st
+  errorFromMaybe (EDNoMember p (getTypeName tId st) field) $
+                 Map.lookup field (strctFields strctDescr)
+
+getStructFieldImpl :: (TypeId, Struct) -> String -> PPos -> State
+                   -> Error (TypeId, Struct)
+getStructFieldImpl (tId, struct) field p st = do
+  destTypeId <- getStructFieldType tId field p st
+  destVar <- errorFromMaybe (EDNoMember p (getTypeName tId st) field) $
+             Map.lookup field struct
+  (destTypeId, ) . snd <$> asStruct st p destVar
+
+getStructField :: (TypeId, Struct) -> [String] -> PPos -> State -> Error Var
+getStructField (tId, struct) [n] p st =
+  errorFromMaybe (EDNoMember p (getTypeName tId st) n) $
+    Map.lookup n struct
+
+getStructField (tId, struct) (n:ns) p st = do
+  (destTypeId, destStruct) <- getStructFieldImpl (tId, struct) n p st
+  getStructField (destTypeId, destStruct) ns p st
+
+getStructField _ [] _ _ = undefined -- Would not parse.
+
+getStructMemebers :: StrcMembers PPos -> State -> Error [(String, TypeId)]
+getStructMemebers (SMEmpty _) _ = return []
+getStructMemebers (SMDefault _ members) st =
+  foldrM (\(DStrMem _ (Ident name) tp) acc -> flip (:) acc . (name, ) <$> getTypeId tp st)
+         [] members
+
+-- First member is a list of accessed fields, second is a variable.
+lvalueMem :: LValue PPos -> State -> Error ([String], (VarId, Var))
+lvalueMem lv st = (vmemb, ) <$> getVar vname p st
+  where
+    lvalueMemImpl :: LValue PPos -> [String] -> ([String], PPos, String)
+    lvalueMemImpl (LValueVar p0 (Ident name)) fs = (fs, p0, name)
+    lvalueMemImpl (LValueMemb _ v (Ident name)) fs = lvalueMemImpl v $ name:fs
+    (vmemb, p, vname) = lvalueMemImpl lv []
 
 -- To avoid code duplication in scope and scope2.
 scopeA :: (a -> State) -> (a -> State -> a) ->

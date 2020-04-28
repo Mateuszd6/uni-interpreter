@@ -25,6 +25,9 @@ run fname pText = do
   case ctrlToError result of
     Ok _ -> exitSuccess
     Fail reason -> printErr (getErrorMsg reason fname) >> exitFailure
+  -- case (parseProgram pText >>= staticChckProgram) of
+    -- Ok _ -> putStrLn "Static check OK."
+    -- Fail reason -> printErr (getErrorMsg reason fname) >> exitFailure
 
 main :: IO ()
 main = do
