@@ -34,7 +34,7 @@ EScan.   Expr6 ::= "scan" "(" [Type] ")" ;
 EIife.   Expr6 ::= FunDecl InvokeExprList ; -- IIFE (more in docs).
 
 ELValue. Expr7 ::= LValue ;
-ENew.    Expr7 ::= "new" Ident "{" [NewFieldAsgn] "}" ;
+ENew.    Expr7 ::= "new" Ident "{" AsgnFields "}" ;
 
 EString. Expr8 ::= String ;
 EInt.    Expr8 ::= Integer ;
@@ -45,10 +45,11 @@ coercions Expr 8 ;
 (:[]).   [Expr] ::= Expr ;
 (:).     [Expr] ::= Expr "," [Expr] ;
 
+AFEmpty.   AsgnFields ::= ;
+AFList.    AsgnFields ::= [NewFieldAsgn] ;
 
 NFADefault. NewFieldAsgn ::= Ident "=" Expr ;
-
-[].     [NewFieldAsgn] ::= ;
+(:[]).  [NewFieldAsgn] ::= ;
 (:).    [NewFieldAsgn] ::= NewFieldAsgn "," [NewFieldAsgn] ;
 
 -- Tuple is not a stand-alone expression (more in docs).
