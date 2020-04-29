@@ -34,7 +34,7 @@ EScan.   Expr6 ::= "scan" "(" [Type] ")" ;
 EIife.   Expr6 ::= FunDecl InvokeExprList ; -- IIFE (more in docs).
 
 ELValue. Expr7 ::= LValue ;
-ENew.    Expr7 ::= "new" Ident "{" "}" ;
+ENew.    Expr7 ::= "new" Ident "{" [NewFieldAsgn] "}" ;
 
 EString. Expr8 ::= String ;
 EInt.    Expr8 ::= Integer ;
@@ -45,8 +45,14 @@ coercions Expr 8 ;
 (:[]).   [Expr] ::= Expr ;
 (:).     [Expr] ::= Expr "," [Expr] ;
 
+
+NFADefault. NewFieldAsgn ::= Ident "=" Expr ;
+
+(:[]).   [NewFieldAsgn] ::= NewFieldAsgn ;
+(:).     [NewFieldAsgn] ::= NewFieldAsgn "," [NewFieldAsgn] ;
+
 -- Tuple is not a stand-alone expression (more in docs).
-EOTRegular. ExprOrTuple ::= Expr;
+EOTRegular. ExprOrTuple ::= Expr ;
 EOTTuple.   ExprOrTuple ::= "[" [Expr] "]";
 
 -- Split into Stmt1 and Stmt to avoid confilits around if/else. Using
