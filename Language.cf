@@ -49,7 +49,7 @@ AFEmpty.   AsgnFields ::= ;
 AFList.    AsgnFields ::= [NewFieldAsgn] ;
 
 NFADefault. NewFieldAsgn ::= Ident "=" Expr ;
-(:[]).  [NewFieldAsgn] ::= ;
+(:[]).  [NewFieldAsgn] ::= NewFieldAsgn;
 (:).    [NewFieldAsgn] ::= NewFieldAsgn "," [NewFieldAsgn] ;
 
 -- Tuple is not a stand-alone expression (more in docs).

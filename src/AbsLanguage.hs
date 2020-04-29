@@ -42,7 +42,7 @@ data Expr a
     | EScan a [Type a]
     | EIife a (FunDecl a) (InvokeExprList a)
     | ELValue a (LValue a)
-    | ENew a Ident [NewFieldAsgn a]
+    | ENew a Ident (AsgnFields a)
     | EString a String
     | EInt a Integer
     | EBool a (Boolean a)
@@ -70,10 +70,17 @@ instance Functor Expr where
         EScan a types -> EScan (f a) (map (fmap f) types)
         EIife a fundecl invokeexprlist -> EIife (f a) (fmap f fundecl) (fmap f invokeexprlist)
         ELValue a lvalue -> ELValue (f a) (fmap f lvalue)
-        ENew a ident newfieldasgns -> ENew (f a) ident (map (fmap f) newfieldasgns)
+        ENew a ident asgnfields -> ENew (f a) ident (fmap f asgnfields)
         EString a string -> EString (f a) string
         EInt a integer -> EInt (f a) integer
         EBool a boolean -> EBool (f a) (fmap f boolean)
+data AsgnFields a = AFEmpty a | AFList a [NewFieldAsgn a]
+  deriving (Eq, Ord, Show, Read)
+
+instance Functor AsgnFields where
+    fmap f x = case x of
+        AFEmpty a -> AFEmpty (f a)
+        AFList a newfieldasgns -> AFList (f a) (map (fmap f) newfieldasgns)
 data NewFieldAsgn a = NFADefault a Ident (Expr a)
   deriving (Eq, Ord, Show, Read)
 
