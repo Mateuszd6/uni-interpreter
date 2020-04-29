@@ -183,8 +183,11 @@ staticChkStmt (SFDecl p (Ident fname) (FDDefault _ params _ funRet stmts)) st = 
   fParams <- funcToParams params st
   enforceNotParamRepeated (map fst3 fParams) (flip EDFuncArgRepeated p)
   let body = SBlock p (BdNone Nothing) stmts
-  staticChkFnBody body fParams p st
-  snd <$> createFunc fname body fParams retT Nothing p st
+  st' <- snd <$> createFunc fname body fParams retT Nothing p st
+  _ <- checkScope (\s -> staticChkFnBody body fParams p s >> return s)
+                  Nothing st' -- eval in st' to allow recursion
+  return st'
+
 
 staticChkStmt (SSDecl p (Ident sname) (SDDefault _ members)) st = do
   strMembs <- getStructMemebers members st

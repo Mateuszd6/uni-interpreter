@@ -49,7 +49,6 @@ data StructDef = StructDef { strctName :: String,
 
 type Param = (String, VarSpec PPos, TypeId)
 
--- Could use Either, but this is much more readable in pattern matching.
 data FRetT
   = FRetTSinge TypeId
   | FRetTTuple [TypeId]

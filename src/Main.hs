@@ -10,14 +10,6 @@ import Parser
 import Static
 import State
 
--- check :: String -> String -> IO ()
--- check fname pText = do
-  -- This allows us to handle any kind of error in one place.
-  -- result <- runCtrlT (toCtrlT (parseProgram pText) >> (staticChkExpr undefined))
-  -- case ctrlToError result of
-    -- Ok _ -> exitSuccess
-    -- Fail reason -> printErr (getErrorMsg reason fname) >> exitFailure
-
 run :: String -> String -> IO ()
 run fname pText = do
   result <- runCtrlT $ do

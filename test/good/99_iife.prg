@@ -16,7 +16,7 @@ while (true) {
         break;
 }
 
-// I was: 5, 6, 7, 8, 9, 0, 1, 2, 3, 4
+// 'i' was: 5, 6, 7, 8, 9, 0, 1, 2, 3, 4
 assert: r == 4321098765;
 
 // An example where iife is actually usefull would be to avoid empty
