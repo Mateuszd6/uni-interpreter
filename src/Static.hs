@@ -1,6 +1,6 @@
 module Static where
 
-import Control.Monad (foldM, foldM_, when, (<=<))
+import Control.Monad (foldM, foldM_, (<=<))
 import qualified Data.Set as Set
 
 import AbsLanguage
@@ -133,7 +133,7 @@ staticChkExpr (EIife p (FDDefault _ params _ funRet stmts) invokeL) st = do
   staticChkFnCallImpl func invokeL p st
 
 staticChkExpr (ELValue _ lValue) st = getLValue lValue st
-staticChkExpr (ENew p (Ident name)) st = defaultVarOfType st <$> getTypeId (TUser p (Ident name)) st  -- TODO
+staticChkExpr (ENew p (Ident name) _) st = defaultVarOfType st <$> getTypeId (TUser p (Ident name)) st  -- TODO
 staticChkExpr (EString _ _) st = return $ defaultVarOfType st stringT
 staticChkExpr (EInt _ _) st = return $ defaultVarOfType st intT
 staticChkExpr (EBool _ _) st = return $ defaultVarOfType st boolT
@@ -160,9 +160,7 @@ staticChkStmt (SWhile _ expr stmt) st = do
   shouldBe asBool expr st
   staticChkStmt stmt st
 
-staticChkStmt (SExpr _ expr) st = do
-  staticChkExpr expr st
-  return st
+staticChkStmt (SExpr _ expr) st = staticChkExpr expr st >> return st
 
 staticChkStmt (SVDecl p (DVDecl _ (Ident name) _ tp)) st = do
   tId <- getTypeId tp st
@@ -188,19 +186,18 @@ staticChkStmt (SFDecl p (Ident fname) (FDDefault _ params _ funRet stmts)) st = 
                   Nothing st' -- eval in st' to allow recursion
   return st'
 
-
 staticChkStmt (SSDecl p (Ident sname) (SDDefault _ members)) st = do
   strMembs <- getStructMemebers members st
   snd <$> createStruct sname p strMembs st
 
 
-staticChkStmt (STDecl p (TTar a idents) (EOTRegular _ expr)) st = do
+staticChkStmt (STDecl p (TTar _ idents) (EOTRegular _ expr)) st = do
   exprVar <- staticChkExpr expr st
   case exprVar of
     VTuple vars -> addTupleToStateImpl idents vars p st
     _ -> Fail $ EDTypeError "tuple" (getTypeName (varTypeId exprVar) st) p
 
-staticChkStmt (STDecl p (TTar a idents) (EOTTuple _ exprs)) st = do
+staticChkStmt (STDecl p (TTar _ idents) (EOTTuple _ exprs)) st = do
   vars <- mapM (\e -> staticChkExpr e st) exprs
   addTupleToStateImpl idents vars p st
 
@@ -208,11 +205,11 @@ staticChkStmt (SAssign _ lValue expr) st = return st -- TODO
 staticChkStmt (STAssign _ tupleTarg exprOrTuple) st = return st -- TODO
 staticChkStmt (SIgnore _ exprOrTuple) st = return st -- TODO: Must evauate expr, because it can be an iife!
 staticChkStmt (SReturn _ retExpr) st = return st -- TODO
-staticChkStmt (SBreak a) st = return st
-staticChkStmt (SCont a) st = return st
+staticChkStmt (SBreak _) st = return st
+staticChkStmt (SCont _) st = return st
 staticChkStmt (SAssert _ expr) st = shouldBe asBool expr st >> return st
 staticChkStmt (SPrint _ exprs) st = return st -- TODO: Assert that elems are printable? Don't allow void?
-staticChkStmt (SBlock _ bind stmts) st = checkScope (flip (foldM (flip staticChkStmt)) stmts) Nothing st
+staticChkStmt (SBlock _ _ stmts) st = checkScope (flip (foldM (flip staticChkStmt)) stmts) Nothing st
 
 
 addTupleToStateImpl :: [IdentOrIgnr PPos] -> [Var] -> PPos -> State -> Error State

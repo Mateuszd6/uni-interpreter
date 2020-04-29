@@ -171,7 +171,7 @@ evalExpr (ELValue p lv@LValueMemb {}) st = do
   structVar <- toCtrlT $ asStruct st p var
   toCtrlT $ (, st) <$> getStructField structVar members p st
 
-evalExpr (ENew p (Ident name)) st = do
+evalExpr (ENew p (Ident name) _) st = do
   v <- toCtrlT $ defaultVarOfType st . fst <$> getTypeStruct name p st
   return (v, st)
 

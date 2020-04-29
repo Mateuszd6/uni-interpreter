@@ -48,8 +48,8 @@ coercions Expr 8 ;
 
 NFADefault. NewFieldAsgn ::= Ident "=" Expr ;
 
-(:[]).   [NewFieldAsgn] ::= NewFieldAsgn ;
-(:).     [NewFieldAsgn] ::= NewFieldAsgn "," [NewFieldAsgn] ;
+[].     [NewFieldAsgn] ::= ;
+(:).    [NewFieldAsgn] ::= NewFieldAsgn "," [NewFieldAsgn] ;
 
 -- Tuple is not a stand-alone expression (more in docs).
 EOTRegular. ExprOrTuple ::= Expr ;
@@ -98,7 +98,7 @@ DVDeclAsgn.   VarDecl ::= Ident VarSpec ":" Type "=" Expr ; -- Decalre + assign,
 DVDeclDeduce. VarDecl ::= Ident VarSpec ":" "=" Expr ; -- Decalre + assign, type is deduced.
 
 VSReadOnly.   VarSpec ::= "!" ;
-VSNone.	      VarSpec ::= ;
+VSNone.       VarSpec ::= ;
 
 SDDefault. StrcDecl ::= "struct" "{" StrcMembers "}" ;
 
