@@ -78,7 +78,5 @@ instance Pos (LValue (Maybe (Int, Int))) where
   getPos (LValueVar pos _) = pos
   getPos (LValueMemb pos _ _) = pos
 
-
--- TODO: If it takes too much space, move to common.hs
 printErr :: String -> IO ()
 printErr = hPutStrLn stderr

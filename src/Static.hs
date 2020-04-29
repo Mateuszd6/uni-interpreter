@@ -74,7 +74,7 @@ staticChkFnBody :: Stmt PPos -> [Param] -> PPos -> State -> Error ()
 staticChkFnBody body fParams p st = do
   let addParam param s = snd <$> createVar (fst3 param) False
                           (defaultVarOfType st (thrd3 param)) p s
-  _ <- checkScope (staticChkStmt body) Nothing =<< (foldM (flip addParam) st fParams)
+  _ <- checkScope (staticChkStmt body) Nothing =<< foldM (flip addParam) st fParams
   -- _ <- staticChkStmt body =<< foldM (flip addParam) st fParams
   return ()
 
@@ -125,7 +125,6 @@ staticChkExpr (EScan _ types) st = return $ defaultVarOfType st 4 -- TODO: Chang
 staticChkExpr (EIife p (FDDefault _ params _ funRet stmts) invokeL) st = do
   retT <- parseRetType funRet st
   fParams <- funcToParams params st
-
   let body = SBlock p (BdNone Nothing) stmts
       func = Func (-1) body retT fParams Nothing (stateScope st) (scopeCnt st)
 
@@ -133,7 +132,17 @@ staticChkExpr (EIife p (FDDefault _ params _ funRet stmts) invokeL) st = do
   staticChkFnCallImpl func invokeL p st
 
 staticChkExpr (ELValue _ lValue) st = getLValue lValue st
-staticChkExpr (ENew p (Ident name) _) st = defaultVarOfType st <$> getTypeId (TUser p (Ident name)) st  -- TODO
+staticChkExpr (ENew p (Ident name) asgnFields) st = do
+  let fields = asgnFieldsToList asgnFields
+  tId <- fst <$> getTypeStruct name p st
+  enforceNotParamRepeated (map fst fields) (flip EDStructArgRepeated p)
+  mapM_ (\(field, expr) -> do
+            destTypeId <- getStructFieldType tId field p st
+            var <- staticChkExpr expr st
+            enforceType var destTypeId p st) fields
+
+  defaultVarOfType st <$> getTypeId (TUser p (Ident name)) st
+
 staticChkExpr (EString _ _) st = return $ defaultVarOfType st stringT
 staticChkExpr (EInt _ _) st = return $ defaultVarOfType st intT
 staticChkExpr (EBool _ _) st = return $ defaultVarOfType st boolT
@@ -198,7 +207,7 @@ staticChkStmt (STDecl p (TTar _ idents) (EOTRegular _ expr)) st = do
     _ -> Fail $ EDTypeError "tuple" (getTypeName (varTypeId exprVar) st) p
 
 staticChkStmt (STDecl p (TTar _ idents) (EOTTuple _ exprs)) st = do
-  vars <- mapM (\e -> staticChkExpr e st) exprs
+  vars <- mapM (`staticChkExpr` st) exprs
   addTupleToStateImpl idents vars p st
 
 staticChkStmt (SAssign _ lValue expr) st = return st -- TODO

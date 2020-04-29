@@ -18,7 +18,7 @@ v3cp :: (i : v3, j : v3) -> int {
 }
 
 v3add :: (i : v3, j : v3) -> v3 {
-    retval : v3 = new v3 {};
+    retval : v3;
     retval.x = i.x + j.x;
     retval.y = i.y + j.y;
     retval.z = i.z + j.z;
@@ -28,11 +28,11 @@ v3add :: (i : v3, j : v3) -> v3 {
 
 // TODO: Fix struct initialization.
 {
-    t1 : v3 = new v3 { };
+    t1 : v3;
     t1.x = 40;
     t1.y = 0;
     t1.z = 0;
-    t2 : v3 = new v3 { };
+    t2 : v3;
     t2.x = 0;
     t2.y = 12;
     t2.z = 30;
@@ -45,7 +45,7 @@ v3add :: (i : v3, j : v3) -> v3 {
 }
 
 {
-    t1 : v3 = new v3 { };
+    t1 : v3;
     t1.x = 12;
     t1.y = 30;
     t1.z = 0-90; // TODO: Unary '-'

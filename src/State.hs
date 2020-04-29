@@ -208,7 +208,6 @@ createVar name rdOnly v p s@(State c str@(Store vars _ _ next _ _) scp@(Scope vn
                stateStore = str{ storeVars = storeVars', nextVarId = next + 1 },
                stateScope = scp{ scopeVars = Map.insert name next vnames } })
 
--- TODO: Decide if this is better, or below is better and refactor.
 createFunc :: String -> Stmt PPos -> [Param] -> FRetT -> Maybe (Set.Set VarId) ->
               PPos -> State -> Error (FunId, State)
 createFunc name body params ret bind p st@(State c str@Store { nextFuncId = next } _ _) =
@@ -269,6 +268,10 @@ funcToParams :: FunParams PPos -> State -> Error [Param]
 funcToParams (FPEmpty _) _ = return []
 funcToParams (FPList _ declParams) st =
   mapM (\(DDeclBasic _ (Ident n) spec t) -> (n, spec, ) <$> getTypeId t st) declParams
+
+asgnFieldsToList :: AsgnFields PPos -> [(String, Expr PPos)]
+asgnFieldsToList (AFEmpty _) = []
+asgnFieldsToList (AFList _ newfieldasgns) = map (\(NFADefault _ (Ident n) e) -> (n, e)) newfieldasgns
 
 getTypeStruct :: String -> PPos -> State -> Error (TypeId, StructDef)
 getTypeStruct name p st = errorFromMaybe (EDTypeNotFound name p) $
@@ -490,11 +493,11 @@ enforceVarIsNotVoid :: Var -> PPos -> Error ()
 enforceVarIsNotVoid VEmpty p = Fail $ EDVarIsVoid p
 enforceVarIsNotVoid _ _  = return ()
 
-enforceIsBultinType :: Type PPos -> Error ()
-enforceIsBultinType (TInt _) = return ()
-enforceIsBultinType (TBool _) = return ()
-enforceIsBultinType (TString _) = return ()
-enforceIsBultinType (TUser p (Ident n)) = Fail $ EDScanError n p
+enforceIsScannable :: Type PPos -> Error ()
+enforceIsScannable (TInt _) = return ()
+enforceIsScannable (TBool _) = return ()
+enforceIsScannable (TString _) = return ()
+enforceIsScannable (TUser p (Ident n)) = Fail $ EDScanError n p
 
 enforceBindedVarsAreInBlock :: String -> Func -> PPos -> State -> Error ()
 enforceBindedVarsAreInBlock fname func p st = do

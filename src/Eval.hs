@@ -97,18 +97,18 @@ evalFunction func invokeP p st = do
 
   evalStmt (funcBody func) st'
 
-assgnStructField :: (TypeId, Struct) -> [String] -> Var -> PPos -> State -> Error Struct
-assgnStructField (tId, struct) [n] asgnVal p st = do
+asgnStructField :: (TypeId, Struct) -> [String] -> Var -> PPos -> State -> Error Struct
+asgnStructField (tId, struct) [n] asgnVal p st = do
   destTypeId <- getStructFieldType tId n p st
   enforceType asgnVal destTypeId p st -- check type of the member
   return $ Map.insert n asgnVal struct
 
-assgnStructField (tId, struct) (n:ns) asgnVal p st = do
+asgnStructField (tId, struct) (n:ns) asgnVal p st = do
   (destTypeId, destStruct) <- getStructFieldImpl (tId, struct) n p st
-  modified <- assgnStructField (destTypeId, destStruct) ns asgnVal p st
+  modified <- asgnStructField (destTypeId, destStruct) ns asgnVal p st
   return $ Map.insert n (VStruct destTypeId modified) struct
 
-assgnStructField _ [] _ _ _ = undefined -- Would not parse.
+asgnStructField _ [] _ _ _ = undefined -- Would not parse.
 
 getBindVars :: Bind PPos -> State -> Error (Maybe (Set.Set VarId))
 getBindVars (BdPure _) _ = return $ Just $ Set.fromList []
@@ -171,9 +171,18 @@ evalExpr (ELValue p lv@LValueMemb {}) st = do
   structVar <- toCtrlT $ asStruct st p var
   toCtrlT $ (, st) <$> getStructField structVar members p st
 
-evalExpr (ENew p (Ident name) _) st = do
-  v <- toCtrlT $ defaultVarOfType st . fst <$> getTypeStruct name p st
-  return (v, st)
+evalExpr (ENew p (Ident name) asgnFields) st = do
+  tId <- toCtrlT $ fst <$> getTypeStruct name p st
+  (_, struct) <- toCtrlT $ asStruct st p $ defaultVarOfType st tId
+  let fields = asgnFieldsToList asgnFields
+  toCtrlT $ enforceNotParamRepeated (map fst fields) (flip EDStructArgRepeated p)
+  (retval, st') <- foldrM (\(field, expr) (v, s) -> do
+                              destTypeId <- toCtrlT $ getStructFieldType tId field p s
+                              (var, s') <- evalExpr expr s
+                              toCtrlT $ enforceType var destTypeId p s'
+                              return (Map.insert field var v, s'))
+                          (struct, st) fields
+  return (VStruct tId retval, st')
 
 evalExpr (EFnCall p (Ident fname) params) st = do
   func <- toCtrlT $ snd <$> getFunc fname p st
@@ -199,7 +208,7 @@ evalExpr (EIife p (FDDefault _ params bind funRet stmts) invkParams) st = do
   scope2 (returnHanlder func p . evalFunction func invokeParams p) Nothing st'
 
 evalExpr (EScan _ types) st = do
-  toCtrlT $ mapM_ enforceIsBultinType types
+  toCtrlT $ mapM_ enforceIsScannable types
   line <- lift $ catchIOError getLine (\_ -> return [])
   let failedParse t l = (False, (False, defaultVal t) : l)
       vars = reverse $ snd $
@@ -374,7 +383,7 @@ evalStmt (SAssign p lv expr) st = do
       setVar vId asgnVal p st'
     _ -> do -- Assign field of a struct.
       (tId, struct) <- asStruct st' (getPos lv) var
-      newStruct <- assgnStructField (tId, struct) membs asgnVal p st'
+      newStruct <- asgnStructField (tId, struct) membs asgnVal p st'
       setVar vId (VStruct tId newStruct) p st'
 
 evalStmt (SReturn p (RExNone _)) st = throw (ExReturn p VEmpty) st

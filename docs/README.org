@@ -8,36 +8,49 @@
 #+latex_header: \usepackage{minted}
 #+latex_header: \usepackage{xcolor}
 
-* Changes from the previous version
-  + Add readonly variables and func params, as I've realized they are
-    obligatory in the 15-points milestone.
-  + Don't use builtin functions - they were causing too much
-    trouble. Use pseudo-statement print and scan function (which
-    accept any number of args).
-  + Added \texttt{assert} function that helps when testing.
-  + Removed \texttt{die} function, because it is basically \texttt{assert(false)}
-  + Change some operator precedence because things like: \texttt{if (1 + 3 >= 4)} dind't parse. Now they do.
-  + TODO: Something else?
+*** Changes from the previous version
+    + Add 'readonly' variables and func params, as I've realized they are
+      obligatory in the 15-points milestone,
+    + Don't use builtin functions - they were causing too much trouble,
+    + Use pseudo-statement print and scan function (which accept any number of
+      args),
+    + Added \texttt{assert} function that helps when testing,
+    + Removed \texttt{die} function, because it is basically an equivalent of
+      \texttt{assert(false)},
+    + Change some operator precedence because things like: \texttt{if (1 + 3 >=
+      4)} didn't parse. Now they do,
+    + Add 'new' statement for initializing structs. Since the language does not
+      support nulls by design, when declaring variable of a struct type, there was
+      nothing that could go to the right-hand side instead of function call, which
+      seemed weird. The 'new' syntax is exactly the same as in C# and is presented
+      at the end of \texttt{good/14-records.prg} test case,
+    + Updated documentation according to these changes.
 
 
-The following lsanguage is an imperative, statically typed, mostly-C-like
-language, featuring with user-defined structs, local/unnamed functions with
-advanced local variables visibility options, arguments passed by value (no
-references), multiple return values (simple tuples) and type in variable
-declarations.
+* Basics:
+   The following language is an imperative, statically typed, mostly-C-like
+   language, featuring with user-defined structs, local/unnamed functions with
+   advanced local variables visibility options, arguments passed by value (no
+   references), multiple return values (simple tuples) and type in variable
+   declarations.
 
-The 'program' in a sequence of statements written from the top to the bottom.
-Instructions are executed one-after-another.  Functions and variables declared
-without parent scope are considered global.  User can never redefine a global
-variable / function. Defined but not assigned variables don't have default value
-and trying to use them (like uninitialized bool in if expresion or integer for
-adding) causes interpreter to crash the program. Locally defined symbols are
-visible in their scope (like in C). User can't redefine symbol in the same
-scope. For example the following: \texttt{ foo : int = 0; foo : int = 0; } would
-parse but fails at runtime. Same rules apply to functions and structs.
+   The 'program' in a sequence of statements written from the top to the bottom.
+   Instructions are executed one-after-another.  Functions and variables declared
+   without parent scope are considered global.  User can never redefine a global
+   variable / function. Defined but not assigned variables don't have default
+   value and trying to use them (like uninitialized bool in if expression- or
+   integer for adding) causes interpreter to crash the program. Locally defined
+   symbols are visible in their scope (like in C). User can't redefine symbol in
+   the same scope. For example the following: \texttt{ foo : int = 0; foo : int =
+   0; } would parse but fails at runtime. Same rules apply to functions and
+   structs.
 
-There is no \texttt{null} constant to which an expression can be compared. This
-is by design, becasue nulls make type deduction much harder.
+   There is no \texttt{null} constant to which an expression can be
+   compared. This is by design, because nulls make type deduction much
+   harder. Each type declared but not given an initial value will have the value
+   equal to the default of its respective type. It means: \texttt{0}, \texttt{""}
+   and \texttt{false} for \texttt{int}, \texttt{string} and
+   \texttt{bool}. Structs have all their members initiated recursively.
 
 * Declarations:
 
@@ -78,9 +91,9 @@ Asignments however:
 
 ** Expressions
 
-Expressions are basic arithmetic and logic expressions taken straight from C,
-operator \texttt{@} for string concatenation and IIFE (in grammar called EIife,
-described later here in the 'functions' part).
+   Expressions are basic arithmetic and logic expressions taken straight from C,
+   expect operator \texttt{@} for string concatenation and IIFE (in grammar
+   called EIife, described later here in the 'functions' part).
 
 #+BEGIN_SRC C++
   // Most of the syntax is C-like:
@@ -111,9 +124,10 @@ described later here in the 'functions' part).
 #+END_SRC
 
 *** For loops
-For is a little different. There is no range-for loop, fors only go from integer
-to integer by one. The interpreter will decide (at runtime) whether we are
-iterating upwards on downwards.
+    For is a little different. There is no range-for loop, for loops only go
+    from integer to integer by one. The interpreter will decide (at runtime)
+    whether we are iterating upwards on downwards. Iterator variable is
+    read-only in the loop body, so can't be reassigned.
 
 #+BEGIN_SRC C++
   for (new_var_name : 1 .. 2)
@@ -154,10 +168,10 @@ iterating upwards on downwards.
   ;;;; // trailing ';' are accepted and not present in  ast, thanks to bnfc.
 #+END_SRC
 
-However things like \texttt{if ();}, \texttt{while ();} \texttt{for (...);}
-\texttt{else ;} won't parse. It came out a bit accidentaly, when I was trying to
-eliminate parsing conflicts around if/else expressions but I think it can be
-considered a feature.
+    However things like \texttt{if ();}, \texttt{while ();} \texttt{for (...);}
+    \texttt{else ;} won't parse. It came out a bit accidentally, when I was
+    trying to eliminate parsing conflicts around \texttt{if else} expressions but I think
+    it can be considered a feature.
 
 *** Struct definitions. Very similar to C, just with slightly different syntax.
 #+BEGIN_SRC C++
@@ -210,6 +224,14 @@ would cause a runtime error.
 
       m : foobar;
       m.zzz = "mateusz";
+
+      // 'new' syntax allowes us to assigne sturct fields on
+      // declaration, avoiding anti-patter above. This is the same:
+      n := new foobar { zzz = "mateusz" };
+
+      // Of course type can be also given explicitely, but in this case
+      // it is rather pointless.
+      n' : foobar = new foobar { zzz = "mateusz" };
   }
 #+END_SRC
 
@@ -339,27 +361,28 @@ anyway.
   }
 #+END_SRC
 
-The whole idea about it is that is is very easy to extract code from block into
-'binded' block or iife, into local function, into global function, which all
-have a very similar syntax (lambda, aka. 'unnamed function' definition sytnax is
-the same as 'named function', but without the name). Which is not what most
-languages offer (like in C++, lambdas have everything differently than regular
-functions).
+    The whole idea about it is that is is very easy to extract code from block
+    into 'binded' block or iife, into local function, into global function,
+    which all have a very similar syntax (lambda, aka. 'unnamed function'
+    definition syntax is the same as 'named function', but without the
+    name). Which is not what most languages offer (like in C++, lambdas have
+    everything differently than regular functions).
 
 * Tuples:
 
-Tuple syntax are (exclusively) square brackets. But the amount of stuff that
-user can do to a tuple is very limited (by design). So there is no nested
-tuples, No tuple 'type' and getting a variable by name (like
-\texttt{foo.get<0>()} in C++) etc.  The only thing user can do with a tuple is
-asign it or return it. However, asignment is possible with \texttt{:=} and with
-\texttt{=}, which causes different things. \texttt{:=} declares new variable, and
-\texttt{=} sets variables that already exists to their new values.
+  Tuple syntax are (exclusively) square brackets. But the amount of stuff that
+  user can do to a tuple is very limited (by design). So there is no nested
+  tuples, No tuple 'type' and getting a variable by name (like
+  \texttt{foo.get<0>()} in C++) etc.  The only thing user can do with a tuple is
+  assign it or return it. However, assignment is possible with \texttt{:=} and
+  with \texttt{=}, which causes different things. \texttt{:=} declares new
+  variable, and \texttt{=} sets variables that already exists to their new
+  values.
 
-Since tuple is not a stand-alone expression nesting tuples or just using them as
-single statemetn does not parse. Using _ inside a tuple match is just an
-ignore. It can't however be used when _returning_ tuples - in that case all
-values must be specified (Compare TupleExp and TupleTarget).
+  Since tuple is not a stand-alone expression nesting tuples or just using them
+  as single statement does not parse. Using _ inside a tuple match is just an
+  ignore. It can't however be used when _returning_ tuples - in that case all
+  values must be specified (Compare TupleExp and TupleTarget).
 
 #+BEGIN_SRC C++
   {
@@ -400,15 +423,15 @@ values must be specified (Compare TupleExp and TupleTarget).
   }();
 #+END_SRC
 
-Nesting tuples is not supported. Tuple is not stand-alone expression. Empty
-tuples also are not supported. The following do not parse:
+  Nesting tuples is not supported. Tuple is not stand-alone expression. Empty
+  tuples also are not supported. The following do not parse:
 #+BEGIN_SRC C++
   // _ = []; // as opposed to '_ = [1];' which does.
   // [1];
   // if ([true]) {}
 #+END_SRC
 
-  // Operator _ also works for assignments, but _not_ for declarations, so:
+  Operator _ also works for assignments, but _not_ for declarations, so:
 #+BEGIN_SRC C++
   _ = "mateusz";
   _ = [ 1, 2, "mateusz" ];
@@ -420,25 +443,29 @@ tuples also are not supported. The following do not parse:
   // ... do not.
 #+END_SRC
 
-*** The interpreter provides following 'standard library' functions:
-#+BEGIN_SRC C++
-  read_int :: () -> [bool, int]          : Read an integer from stdin.
-  read_string :: () -> [bool, int]       : Read a string from stdin.
-  write_int :: (v : int) -> [bool]       : Write an int to stdout.
-  write_string :: (v : string) -> [bool] : Write a string to stdout.
-  die :: (msg : string)!                 : Kill program execution (with message).
-#+END_SRC
-
-IO functions return a boolean telling if the operation succeeded or not, read
-functions return a pair \texttt{[error; readValue]}.
+*** The interpreter also provides \texttt{print}, \texttt{scan} and \texttt{assert} expressions
+    + \texttt{print} - prints the expression to the screen. Must be a builtin
+      type. Printing structs is not supported, printing tuples would not even
+      parse, because tuples are not expressions.
+    + \texttt{scan} - scan is a pseudo-statement that returns $n+1$ - element
+      tuple, where $n$ was a number of its parameters and tries to scanf these
+      from the next stdin line. Whole line is fetched, so each scan must expect
+      a separate, one newline. Also only builtin types are expected. The first
+      element of the tuple tells the user how many elements were scanned
+      properly, 0 means none. The rest of the unscanned args have their default
+      values (since null is not supported). The function does not distinguish
+      from IO error and parasing error and will return 0 as first argument on
+      any IO error.
+    + \texttt{assert} - obvious. Used mostly in testing.
 
 * Disclaimer:
+  Most of the ideas here (especially the '!' operator, but also the basics for
+  the assigment syntax) were invented (or at least gathered up and presented) by
+  Jonathan Blow in his talk 'Ideas for a new programming language for
+  games'. When he described something similar (syntax is slightly different that
+  what I've came up with): https://www.youtube.com/watch?v=TH9VCN6UkyQ.
 
-Most of the ideas here (especially the '!' operator, but also the basics for the
-assigment syntax) were invented (or at least gathered up and presented) by
-Jonathan Blow in his talk 'Ideas for a new programming language for games'. When
-he described something similar (syntax is slightly different that what I've came
-up with): https://www.youtube.com/watch?v=TH9VCN6UkyQ .
+  \clearpage
 
 * Cennik:
 #+BEGIN_EXAMPLE
@@ -464,6 +491,9 @@ X 16 (1) (break, continue)
   17 (4) (funkcje wyższego rzędu, anonimowe, domknięcia)
   18 (3) (generatory)
 
-X 19     ('bind' operator)
+X 99     ('new' syntax)
+X 99     (iife)
+X 99     ('bind' operator)
+
 Razem: 30
 #+END_EXAMPLE

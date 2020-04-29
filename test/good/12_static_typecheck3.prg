@@ -1,4 +1,4 @@
-// FAILS: static_typecheck3.prg:14:5: Type error: expected `bool', got `int'.
+// FAILS: 12_static_typecheck3.prg:14:5: Type error: expected `bool', got `int'.
 assert: false; // Not reached.
 
 bar :: struct {

@@ -1,4 +1,4 @@
-// FAILS: static_typecheck5.prg:8:5: Type error: expected `bool', got `int'.
+// FAILS: 12_static_typecheck5.prg:8:5: Type error: expected `bool', got `int'.
 
 assert: false; // Not reached.
 foo :: (x : int, y : int) -> int {
