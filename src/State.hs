@@ -1,4 +1,5 @@
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE LambdaCase #-}
 
 module State where
 
@@ -415,56 +416,50 @@ asStruct _ _ (VStruct tId str) = return (tId, str)
 asStruct _ p _ = Fail $ EDVarNotStruct p
 
 -- Fucntions to catch and throw CtrlException:
+throw :: Monad m => ExcType -> State -> CtrlT m a
+throw v st = CtrlT . return $ CtrlException v st
+
+catch :: Monad m => (CtrlFlow a -> CtrlFlow b) -> CtrlT m a -> CtrlT m b
+catch hndl ctrl = do
+  curr <- lift $ runCtrlT ctrl
+  CtrlT . return $ hndl curr
+
+-- Since using catch directly isn't really handy, define some aux funcs.
 catchBreak :: Monad m => CtrlT m State -> CtrlT m State
-catchBreak st = do
-  err_ <- lift $ runCtrlT st
-  CtrlT . return $ case err_ of
+catchBreak = catch (\ctrl -> case ctrl of
     CtrlException (ExBreak _) s -> CtrlRegular $ Ok s
-    _ -> err_
+    _ -> ctrl)
 
 catchContinue :: Monad m => CtrlT m State -> CtrlT m State
-catchContinue st = do
-  err_ <- lift $ runCtrlT st
-  CtrlT . return $ case err_ of
+catchContinue = catch (\ctrl -> case ctrl of
     CtrlException (ExContinue _) s -> CtrlRegular $ Ok s
-    _ -> err_
+    _ -> ctrl)
 
 catchReturnVoid :: Monad m => PPos -> CtrlT m State -> CtrlT m (Var, State)
-catchReturnVoid _ st = do
-  err_ <- lift $ runCtrlT st
-  CtrlT . return $ case err_ of
+catchReturnVoid _ = catch (\case
     CtrlException (ExReturn _ VEmpty) st' -> CtrlRegular $ Ok (VEmpty, st')
     CtrlException (ExReturn p _) _ -> CtrlRegular $ Fail $ EDNoReturnNonVoid p
-    CtrlException x y -> CtrlException x y
     CtrlRegular (Ok st') -> CtrlRegular $ Ok (VEmpty, st')
-    CtrlRegular (Fail r) -> CtrlRegular $ Fail r
+    CtrlException x y -> CtrlException x y
+    CtrlRegular (Fail r) -> CtrlRegular $ Fail r)
 
 expectReturnValue :: Monad m => FRetT -> PPos -> CtrlT m State -> CtrlT m (Var, State)
-expectReturnValue retT p st = do
-  err_ <- lift $ runCtrlT st
-  CtrlT . return $ case err_ of
+expectReturnValue retT p = catch (\case
     CtrlException (ExReturn p0 VEmpty) _ -> CtrlRegular $ Fail $ EDReturnVoid p0
     CtrlException (ExReturn p0 v) st' -> CtrlRegular $ enforceRetType v retT p0 st' >> return (v, st')
     CtrlRegular (Fail r) -> CtrlRegular $ Fail r
-    _ -> CtrlRegular $ Fail $ EDNoReturn p
+    _ -> CtrlRegular $ Fail $ EDNoReturn p)
 
 dontAllowBreakContinue :: Monad m => CtrlT m a -> CtrlT m a
-dontAllowBreakContinue st = do
-  err_ <- lift $ runCtrlT st
-  CtrlT . return $ case err_ of
+dontAllowBreakContinue = catch (\ctrl -> case ctrl of
     CtrlException (ExBreak p) _ -> CtrlRegular $ Fail $ EDUnexpectedBreak p
     CtrlException (ExContinue p) _ -> CtrlRegular $ Fail $ EDUnexpectedContinue p
-    _ -> err_
+    _ -> ctrl)
 
 dontAllowReturn :: Monad m => CtrlT m a -> CtrlT m a
-dontAllowReturn st = do
-  err_ <- lift $ runCtrlT st
-  CtrlT . return $ case err_ of
+dontAllowReturn = catch (\ctrl -> case ctrl of
     CtrlException (ExReturn p _) _ -> CtrlRegular $ Fail $ EDUnexpectedReturn p
-    _ -> err_
-
-throw :: Monad m => ExcType -> State -> CtrlT m a
-throw v st = CtrlT . return $ CtrlException v st
+    _ -> ctrl)
 
 -- Functions used to enforce some commonly changed conditions in the Error monad.
 enforceParamLengthEqual :: PPos -> Int -> Int -> Error ()

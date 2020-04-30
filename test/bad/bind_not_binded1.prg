@@ -1,4 +1,7 @@
-// FAILS: bind_not_binded1.prg:4:1: Variable `x' not in scope.
+// FAILS: bind_not_binded1.prg:11:15: Variable `x' is used, but not binded.
+
+x := 0;
+y := 0;
 
 // Example shows how binds can be nested:
 !(x, y) {

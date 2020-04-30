@@ -1,4 +1,10 @@
-module Static where
+module Static (staticChckProgram) where
+
+-- Static type checking module. It is very simplified run over program that
+-- focuses on only finding type errors (ond sometimes others, when something
+-- must be checked in order to get the type info). It is completely separate
+-- from Eval module and can be run independetly. Either or Eval and Staic module
+-- include the other.
 
 import Control.Monad (foldM, foldM_, (<=<))
 import qualified Data.Set as Set
@@ -42,14 +48,6 @@ shouldBe asF expr st = do
   _ <- asF st (getPos expr) v
   return ()
 
--- TODO: Decide if it lives or not.
--- checkExprList :: (Var -> Bool) -> (Expr PPos -> Var -> ErrorDetail) -> [Expr PPos] -> State
-              -- -> Error ()
--- checkExprList checkFun edFun exprs st =
-  -- let check expr = staticChkExpr expr st >>= \v -> when (checkFun v) $ Fail $ edFun expr v
-  -- in
-    -- mapM_ check exprs
-
 staticChkBinExpr :: (State -> PPos -> Var -> Error a) -> TypeId -> Expr PPos -> Expr PPos
                  -> State -> Error Var
 staticChkBinExpr asF tId lhs rhs st = do
@@ -80,7 +78,6 @@ staticChkFnBody body fParams p st = do
 
 staticChkEqExpr :: Expr PPos -> Expr PPos -> State -> Error Var
 staticChkEqExpr lhs rhs st =
-  -- TODO: rename to enforceComprarable and move somewhere merge with eval.
   let canComp :: Var -> Var -> Error Bool
       canComp (VInt x) (VInt y) = return $ x == y
       canComp (VBool x) (VBool y) = return $ x == y
@@ -120,7 +117,8 @@ staticChkExpr (EFnCall p (Ident name) invokeL) st = do
   func <- snd <$> getFunc name p st
   staticChkFnCallImpl func invokeL p st
 
-staticChkExpr (EScan _ types) st = return $ defaultVarOfType st 4 -- TODO: Change it for tuples.
+staticChkExpr (EScan _ types) st = VTuple <$>
+  mapM (\t -> defaultVarOfType st <$> getTypeId t st) types
 
 staticChkExpr (EIife p (FDDefault _ params _ funRet stmts) invokeL) st = do
   retT <- parseRetType funRet st
@@ -210,16 +208,58 @@ staticChkStmt (STDecl p (TTar _ idents) (EOTTuple _ exprs)) st = do
   vars <- mapM (`staticChkExpr` st) exprs
   addTupleToStateImpl idents vars p st
 
-staticChkStmt (SAssign _ lValue expr) st = return st -- TODO
-staticChkStmt (STAssign _ tupleTarg exprOrTuple) st = return st -- TODO
-staticChkStmt (SIgnore _ exprOrTuple) st = return st -- TODO: Must evauate expr, because it can be an iife!
+staticChkStmt (SAssign p lv expr) st = do
+  asgnVal <- staticChkExpr expr st
+  enforceVarIsNotVoid asgnVal p
+  (membs, (_, var)) <- lvalueMem lv st
+
+  case membs of
+    [] -> enforceType var (varTypeId asgnVal) p st
+    _ -> do -- Assign field of a struct.
+      structTId <- fst <$> asStruct st (getPos lv) var
+      staticChkFieldAsgn membs structTId asgnVal p st
+  return st
+
+staticChkStmt (STAssign p (TTar _ idents) (EOTRegular _ expr)) st = do
+  vars <- staticChkExpr expr st >>= asTuple st p
+  staticChkBulkAsgn idents vars p st
+  return st
+
+staticChkStmt (STAssign p (TTar _ idents) (EOTTuple _ exprs)) st = do
+  vars <- mapM (`staticChkExpr` st) exprs
+  staticChkBulkAsgn idents vars p st
+  return st
+
+staticChkStmt (SIgnore _ (EOTRegular _ expr)) st = staticChkExpr expr st >> return st
+
+staticChkStmt (SIgnore _ (EOTTuple _ exprs)) st =
+  mapM_ (`staticChkExpr` st) exprs >> return st
+
 staticChkStmt (SReturn _ retExpr) st = return st -- TODO
 staticChkStmt (SBreak _) st = return st
 staticChkStmt (SCont _) st = return st
 staticChkStmt (SAssert _ expr) st = shouldBe asBool expr st >> return st
-staticChkStmt (SPrint _ exprs) st = return st -- TODO: Assert that elems are printable? Don't allow void?
+staticChkStmt (SPrint _ exprs) st = mapM_ (`staticChkExpr` st) exprs >> return st
 staticChkStmt (SBlock _ _ stmts) st = checkScope (flip (foldM (flip staticChkStmt)) stmts) Nothing st
 
+staticChkFieldAsgn :: [String] -> TypeId -> Var -> PPos -> State -> Error ()
+staticChkFieldAsgn (m:ms) structTId var p st = do
+  tId <- getStructFieldType structTId m p st
+  case ms of
+    [] -> enforceType var tId p st
+    _ -> staticChkFieldAsgn ms tId var p st
+staticChkFieldAsgn [] _ _ _ _ = undefined -- Can't reach
+
+staticChkBulkAsgn :: [IdentOrIgnr PPos] -> [Var] -> PPos -> State -> Error ()
+staticChkBulkAsgn idents vars p st = do
+  zipped <- errorFromMaybe (EDTupleNumbersDontMatch p (length idents) (length vars)) $
+            tryZip idents vars
+  mapM_ (\(tar, v) -> case tar of
+                        IOIIdent p' (Ident vname) -> do
+                          var <- snd <$> getVar vname p' st
+                          enforceType var (varTypeId v) p' st
+                        IOIIgnore _ -> return ())
+        zipped
 
 addTupleToStateImpl :: [IdentOrIgnr PPos] -> [Var] -> PPos -> State -> Error State
 addTupleToStateImpl idents vars p st = do
@@ -230,4 +270,4 @@ addTupleToStateImpl idents vars p st = do
              case tar of
                IOIIgnore _ -> return s
                IOIIdent pv (Ident name) -> snd <$> createVar name False v pv s)
-    st zipped
+         st zipped

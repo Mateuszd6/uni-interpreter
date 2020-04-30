@@ -1,6 +1,6 @@
 {-# LANGUAGE TupleSections #-}
 
-module Eval where
+module Eval (evalProgram) where
 
 import Control.Monad (foldM, foldM_, unless)
 import Control.Monad.Trans.Class (lift, MonadTrans(..))

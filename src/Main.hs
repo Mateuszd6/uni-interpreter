@@ -17,7 +17,7 @@ run fname pText = do
     toCtrlT $ staticChckProgram parsed -- Static typecheck
     evalProgram parsed
 
-  -- This allows us to handle any kind of error in one place.
+  -- Handle any kind of error in one place:
   case ctrlToError result of
     Ok _ -> exitSuccess
     Fail reason -> printErr (getErrorMsg reason fname) >> exitFailure
