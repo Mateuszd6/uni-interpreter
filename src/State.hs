@@ -205,11 +205,14 @@ toCtrlT = CtrlT . return . CtrlRegular
 -- be in 'exception thrown' state, but treat is as an error.
 ctrlToError :: CtrlFlow a -> Error a
 ctrlToError (CtrlRegular err) = err
-ctrlToError (CtrlException expType _) = Fail $ EDUncoughtedExc (show expType) (getPos expType)
+ctrlToError (CtrlException expType _) = Fail $
+  EDUncoughtedExc (show expType) (getPos expType)
 
 -- Create new variable and add it to the state.
 createVar :: String -> Bool -> Var -> PPos -> State -> Error (VarId, State)
-createVar name rdOnly v p s@(State c str@(Store vars _ _ next _ _) scp@(Scope vnames _ _) _ _) =
+createVar name rdOnly v p s@(State c
+                                   str@(Store vars _ _ next _ _)
+                                   scp@(Scope vnames _ _) _ _) =
   let varInfo = VarInfo (scopeCnt s) rdOnly
       storeVars' = Map.insert next (v, varInfo) vars
   in do
@@ -220,12 +223,13 @@ createVar name rdOnly v p s@(State c str@(Store vars _ _ next _ _) scp@(Scope vn
 
 createFunc :: String -> Stmt PPos -> [Param] -> FRetT -> Maybe (Set.Set VarId) ->
               PPos -> State -> Error (FunId, State)
-createFunc name body params ret bind p st@(State c str@Store { nextFuncId = next } _ _ _) =
+createFunc name body params ret bind p st@(State c str@Store{ nextFuncId = next } _ _ _) =
   let scp' = (stateScope st){ scopeFuncs = Map.insert name next (funcsScope st) }
       storeFuncs' = Map.insert next func (funcsStore st)
       func = Func next body ret params bind scp' c
   in do
-    enforceNotAlreadyDefined name fScopeN (funcsScope st) (funcsStore st) c (EDFuncAlreadyDeclared p)
+    enforceNotAlreadyDefined name fScopeN (funcsScope st) (funcsStore st)
+                             c (EDFuncAlreadyDeclared p)
     enforceNotParamRepeated (map fst3 params) (flip EDFuncArgRepeated p)
     return (next, st{
                stateStore = str{ storeFuncs = storeFuncs', nextFuncId = next + 1 },
@@ -233,7 +237,7 @@ createFunc name body params ret bind p st@(State c str@Store { nextFuncId = next
 
 createStruct :: String -> PPos -> [(String, TypeId)] -> State -> Error (TypeId, State)
 createStruct name p fields st@(State _ str@Store { nextTypeId = next } _ _ _) =
-  let storeTypes' = Map.insert next (StructDef name $ Map.fromList fields) (storeTypes str)
+  let storeTypes' = Map.insert next (StructDef name $ Map.fromList fields)(storeTypes str)
       scopeTypes' = Map.insert name next (typesScope st)
   in do
     enforceNotParamRepeated (map fst fields) (flip EDStructArgRepeated p)
@@ -281,7 +285,8 @@ funcToParams (FPList _ declParams) st =
 
 asgnFieldsToList :: AsgnFields PPos -> [(String, Expr PPos)]
 asgnFieldsToList (AFEmpty _) = []
-asgnFieldsToList (AFList _ newfieldasgns) = map (\(NFADefault _ (Ident n) e) -> (n, e)) newfieldasgns
+asgnFieldsToList (AFList _ newfieldasgns) = map (\(NFADefault _ (Ident n) e) -> (n, e))
+                                                newfieldasgns
 
 getTypeStruct :: String -> PPos -> State -> Error (TypeId, StructDef)
 getTypeStruct name p st = errorFromMaybe (EDTypeNotFound name p) $
@@ -382,16 +387,17 @@ lvalueMem lv st = (vmemb, ) <$> getVar vname p st
     (vmemb, p, vname) = lvalueMemImpl lv []
 
 -- To avoid code duplication in scope and scope2.
-scopeA :: (a -> State) -> (a -> State -> a) ->
-          (State -> CtrlT IO a) -> Maybe FRetT ->
-          Maybe (Set.Set VarId) -> State -> CtrlT IO a
+scopeA :: Monad m =>
+          (a -> State) -> (a -> State -> a) ->
+          (State -> m a) -> Maybe FRetT ->
+          Maybe (Set.Set VarId) -> State -> m a
 scopeA getS setS fun fret bind st =
   let newBind = case bind of
                   Nothing -> bindVars st
                   Just set -> (scopeCnt st + 1, set) : bindVars st
       nextFRetT = (fret Control.Applicative.<|> currRetT st)
   in do
-    retv <- fun st { scopeCnt = scopeCnt st + 1, bindVars = newBind, currRetT = nextFRetT }
+    retv <- fun st{ scopeCnt = scopeCnt st + 1, bindVars = newBind, currRetT = nextFRetT }
     return $ setS retv (getS retv){ scopeCnt = scopeCnt st,
                                     stateScope = stateScope st,
                                     bindVars = bindVars st,
@@ -566,7 +572,7 @@ enforceBind vId scopeN n p (State _ _ _ ((i, set):_) _)
   | scopeN >= i = return () -- Variable declared insinde last bind block.
   | Set.member vId set = return () -- Variable binded in the curr bind scope.
   | otherwise = Fail $ EDBind n p
-enforceBind _ _ _ _ (State _ _ _ [] _) = undefined -- We always have at least one bind rule
+enforceBind _ _ _ _ (State _ _ _ [] _) = undefined -- We always have at least one bind
 
 enforceVarIsNotReadOnly :: VarInfo -> PPos -> Error ()
 enforceVarIsNotReadOnly info p = when (viIsReadOnly info) $ Fail $ EDVarReadOnly p

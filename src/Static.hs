@@ -9,7 +9,6 @@ module Static (staticChckProgram) where
 -- '12_static_typecheck*.prg' tests should fail (because they demonstrate, that
 -- first line of the code is not evaluated with an assert).
 
-import Control.Applicative ((<|>))
 import Control.Monad (foldM, foldM_, (<=<))
 import qualified Data.Set as Set
 
@@ -26,20 +25,10 @@ defaultReturnType :: FRetT -> State -> Var
 defaultReturnType (FRetTSinge tId) st = defaultVarOfType st tId
 defaultReturnType (FRetTTuple tIds) st = VTuple $ map (defaultVarOfType st) tIds
 
-checkScope :: (State -> Error State) -> Maybe FRetT -> Maybe (Set.Set VarId) -> State
+-- Like 'scope', but in Error monad.
+chkScope :: (State -> Error State) -> Maybe FRetT -> Maybe (Set.Set VarId) -> State
            -> Error State
-checkScope fun fret bind st =
-  let newBind = case bind of
-                  Nothing -> bindVars st
-                  Just set -> (scopeCnt st + 1, set) : bindVars st
-      nextFRetT = (fret Control.Applicative.<|> currRetT st)
-  in do
-    st' <- fun st { scopeCnt = scopeCnt st + 1, bindVars = newBind, currRetT = nextFRetT }
-    return $ st'{ scopeCnt = scopeCnt st,
-                  stateScope = stateScope st,
-                  bindVars = bindVars st,
-                  currRetT = currRetT st }
-    -- Rollbacks scope and bind vars after leaving the scope.
+chkScope = scopeA id (\_ x -> x)
 
 getLValue :: LValue PPos -> State -> Error Var
 getLValue (LValueVar p (Ident vname)) st = snd <$> getVar vname p st
@@ -78,7 +67,8 @@ staticChkFnBody :: Stmt PPos -> [Param] -> FRetT -> PPos -> State -> Error ()
 staticChkFnBody body fParams retT p st = do
   let addParam param s = snd <$> createVar (fst3 param) False
                           (defaultVarOfType st (thrd3 param)) p s
-  _ <- checkScope (staticChkStmt body) (Just retT) Nothing =<< foldM (flip addParam) st fParams
+  _ <- chkScope (staticChkStmt body) (Just retT) Nothing =<<
+       foldM (flip addParam) st fParams
   return ()
 
 staticChkEqExpr :: Expr PPos -> Expr PPos -> State -> Error Var
@@ -165,7 +155,7 @@ staticChkStmt (SIfElse _ expr stmtIf stmtElse) st = do
 staticChkStmt (SFor p (Ident name) exprB exprE stmt) st = do
   shouldBe asInt exprB st
   shouldBe asInt exprE st
-  checkScope ((staticChkStmt stmt . snd) <=< createVar name False (VInt 0) p)
+  chkScope ((staticChkStmt stmt . snd) <=< createVar name False (VInt 0) p)
              Nothing Nothing st
 
 staticChkStmt (SWhile _ expr stmt) st = do
@@ -194,7 +184,7 @@ staticChkStmt (SFDecl p (Ident fname) (FDDefault _ params _ funRet stmts)) st = 
   enforceNotParamRepeated (map fst3 fParams) (flip EDFuncArgRepeated p)
   let body = SBlock p (BdNone Nothing) stmts
   st' <- snd <$> createFunc fname body fParams retT Nothing p st
-  _ <- checkScope (\s -> staticChkFnBody body fParams retT p s >> return s)
+  _ <- chkScope (\s -> staticChkFnBody body fParams retT p s >> return s)
                   Nothing Nothing st' -- eval in st' to allow recursion
   return st'
 
@@ -249,7 +239,7 @@ staticChkStmt (SBreak _) st = return st
 staticChkStmt (SCont _) st = return st
 staticChkStmt (SAssert _ expr) st = shouldBe asBool expr st >> return st
 staticChkStmt (SPrint _ exprs) st = mapM_ (`staticChkExpr` st) exprs >> return st
-staticChkStmt (SBlock _ _ stmts) st = checkScope (flip (foldM (flip staticChkStmt)) stmts)
+staticChkStmt (SBlock _ _ stmts) st = chkScope (flip (foldM (flip staticChkStmt)) stmts)
                                       Nothing Nothing st
 
 staticChkReturnExpr :: ReturnExpr PPos -> State -> Error Var
