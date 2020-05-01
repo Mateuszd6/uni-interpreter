@@ -101,14 +101,18 @@ data Scope = Scope
 
 -- Avoid hardcodeing typeids.
 -- TODO: make sure they are used everywhere
-voidT :: Int
+voidT :: TypeId
 voidT = 0
-intT :: Int
+intT :: TypeId
 intT = 1
-boolT :: Int
+boolT :: TypeId
 boolT = 2
-stringT :: Int
+stringT :: TypeId
 stringT = 3
+tupleT :: TypeId
+tupleT = 4
+firstFreeNotBulitinT :: TypeId
+firstFreeNotBulitinT = 5
 
 -- Commonly used aliases to get state members
 varsScope :: State -> Map.Map String VarId
@@ -291,9 +295,9 @@ setVar vId val p s@(State _ str _ _) = do
   return s{ stateStore = str{ storeVars = Map.insert vId (val, info) $ storeVars str }}
 
 getTypeId :: Type PPos -> State -> Error TypeId
-getTypeId (TInt _) _ = return 1
-getTypeId (TBool _) _ = return 2
-getTypeId (TString _) _ = return 3
+getTypeId (TInt _) _ = return intT
+getTypeId (TBool _) _ = return boolT
+getTypeId (TString _) _ = return stringT
 getTypeId (TUser p (Ident tname)) st =
   errorFromMaybe (EDTypeNotFound tname p) $
   Map.lookup tname (typesScope st)
@@ -307,28 +311,29 @@ getTypeDescr tId p st = errorFromMaybe (EDVarNotStruct p) $
 getTypeName :: TypeId -> State -> String
 getTypeName tId st
   | tId == 0 = "void"
-  | tId == 1 = "int"
-  | tId == 2 = "bool"
-  | tId == 3 = "string"
-  | tId == 4 = "tuple"
+  | tId == intT = "int"
+  | tId == boolT = "bool"
+  | tId == stringT = "string"
+  | tId == tupleT = "tuple"
   | otherwise = strctName $ nofail $ getTypeDescr tId Nothing st
 
 -- Can't fail, if we have a typeId it means there type actually exits.
 defaultVarOfType :: State -> TypeId -> Var
-defaultVarOfType _ 0 = VEmpty -- Should not happen
-defaultVarOfType _ 1 = VInt 0
-defaultVarOfType _ 2 = VBool False
-defaultVarOfType _ 3 = VString ""
-defaultVarOfType _ 4 = VTuple [] -- Should no happen
-defaultVarOfType st sId = VStruct sId $ Map.map (defaultVarOfType st) $ strctFields $
-                          fromJust $ Map.lookup sId (typesStore st)
+defaultVarOfType st tId
+  | tId == voidT = VEmpty
+  | tId == intT = VInt 0
+  | tId == boolT = VBool False
+  | tId == stringT = VString ""
+  | tId == tupleT = VTuple [] -- Should not happen
+  | otherwise = VStruct tId $ Map.map (defaultVarOfType st) $ strctFields $
+                        fromJust $ Map.lookup tId (typesStore st)
 
 varTypeId :: Var -> TypeId
-varTypeId VEmpty = 0
-varTypeId (VInt _) = 1
-varTypeId (VBool _) = 2
-varTypeId (VString _) = 3
-varTypeId (VTuple _) = 4 -- Tuple variables are only used when returning values.
+varTypeId VEmpty = voidT
+varTypeId (VInt _) = intT
+varTypeId (VBool _) = boolT
+varTypeId (VString _) = stringT
+varTypeId (VTuple _) = tupleT -- Tuple variables are only used when returning values.
 varTypeId (VStruct sId _) = sId -- Structs know their typeIDs.
 
 getStructFieldType :: TypeId -> String -> PPos -> State -> Error TypeId

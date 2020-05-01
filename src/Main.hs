@@ -1,6 +1,4 @@
--- TODO: Void variable can be the RHS on the deduced type.
--- TODO: It is possible to make a struct of name 'void'
-
+import Control.Monad (when)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 
@@ -10,11 +8,15 @@ import Parser
 import Static
 import State
 
+-- Can be set to false to disable static type checking.
+doStaticTypeCheck :: Bool
+doStaticTypeCheck = True
+
 run :: String -> String -> IO ()
 run fname pText = do
   result <- runCtrlT $ do
     parsed <- toCtrlT $ parseProgram pText
-    toCtrlT $ staticChckProgram parsed -- Static typecheck
+    when (doStaticTypeCheck) (toCtrlT $ staticChckProgram parsed)
     evalProgram parsed
 
   -- Handle any kind of error in one place:

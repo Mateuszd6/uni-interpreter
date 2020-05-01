@@ -1,4 +1,4 @@
-#+AUTHOR: Mateusz Dudziński
+#+AUTHOR: Mateusz Dudziński (md394171)
 #+TITLE: JPP - language specification
 #+EMAIL: mateusz.dudzinski@students.mimuw.edu.pl
 #+OPTIONS: toc:nil

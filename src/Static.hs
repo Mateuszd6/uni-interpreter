@@ -1,10 +1,13 @@
 module Static (staticChckProgram) where
 
 -- Static type checking module. It is very simplified run over program that
--- focuses on only finding type errors (ond sometimes others, when something
+-- focuses on only finding type errors (and sometimes others, when something
 -- must be checked in order to get the type info). It is completely separate
--- from Eval module and can be run independetly. Either or Eval and Staic module
--- include the other.
+-- from Eval module. Neither Eval nor Static modules include the other. Static
+-- type checking can be turned off in the Main.hs file. The interpreter should
+-- produce _exactly_ the same errors without it. In disabled, only
+-- '12_static_typecheck*.prg' tests should fail (because they demonstrate, that
+-- first line of the code is not evaluated with an assert).
 
 import Control.Monad (foldM, foldM_, (<=<))
 import qualified Data.Set as Set

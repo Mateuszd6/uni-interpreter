@@ -1,5 +1,4 @@
-assert: false; // Not reached.
+foobar :: () {
+}
 
-x : int = (x : int) -> int {
-  return 4 + x;
-}();
+[x] := [foobar()];
