@@ -9,23 +9,45 @@
 #+latex_header: \usepackage{xcolor}
 
 *** Changes from the previous version
-    + Add 'readonly' variables and func params, as I've realized they are
+    - Add 'readonly' variables and func params, as I've realized they are
       obligatory in the 15-points milestone,
-    + Don't use builtin functions - they were causing too much trouble,
-    + Use pseudo-statement print and scan function (which accept any number of
+    - Don't use builtin functions - they were causing too much trouble,
+    - Use pseudo-statement print and scan function (which accept any number of
       args),
-    + Added \texttt{assert} function that helps when testing,
-    + Removed \texttt{die} function, because it is basically an equivalent of
-      \texttt{assert(false)},
-    + Change some operator precedence because things like: \texttt{if (1 + 3 >=
+    - Added \texttt{assert} statement that helps when testing, with the obvious
+      meaning and behaviour.
+    - Change some operator precedence because things like: \texttt{if (1 + 3 >=
       4)} didn't parse. Now they do,
-    + Add 'new' statement for initializing structs. Since the language does not
+    - Add 'new' statement for initializing structs. Since the language does not
       support nulls by design, when declaring variable of a struct type, there was
       nothing that could go to the right-hand side instead of function call, which
       seemed weird. The 'new' syntax is exactly the same as in C# and is presented
-      at the end of \texttt{good/14-records.prg} test case,
-    + Updated documentation according to these changes.
+      in its 'good' test case.
+    - Updated documentation according to these changes.
 
+*** Makefile and running the test suite
+    \texttt{make} command will build the interpreter for sources. It won't by
+    default regenerate BNFC files. For that use \texttt{make language}. It will
+    start BNFC suite programs and then copy generated files to their appropriate
+    directories, removing ones we don't want. All tests are in the \texttt{test}
+    directory. There is a script to run the test suite, but easiest way to do it
+    is by typing \texttt{make validate} into the command line. Tests that are
+    supposed to fail have \texttt{//FAILS:} comment at the top. It is used for
+    output comparison when testing. It is possible to disable static type
+    checking in the \texttt{Main.hs} file and all tests should produce exactly
+    the same results, including the error messages, expect all 12* tests, which
+    should all fail in the first line because of the broken assertion.
+
+*** Running the program
+    Interpreter can either take one and only parameter, which is a path to a
+    file to execute, or when no params it reads the text from stdin. Note that
+    when reading stdin, \texttt{scan} function will never work, and will always
+    return value that indicates an error. Because every line starting with # is
+    ignored by the parser one can put
+#+BEGIN_SRC shell
+#!/path/to/interpreter/can/be/relative
+#+END_SRC
+    at the first line of the file and run the files directly from the shell.
 
 * Basics:
    The following language is an imperative, statically typed, mostly-C-like
@@ -251,7 +273,7 @@ anyway.
   }
 #+END_SRC
 
-*** Return type can be ommited, if function does not return.
+*** Return type can be omitted, if function does not return.
 #+BEGIN_SRC C++
   out : int = 0;
   exmaple2 :: (x : int, y : int)

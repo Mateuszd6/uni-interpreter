@@ -1,5 +1,0 @@
-foobar :: () -> int {
-    return "mateusz";
-}
-
-[x] := [foobar()];

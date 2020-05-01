@@ -16,7 +16,7 @@ endif
 
 export PKGNAME := mateusz_dudzinski
 
-.PHONY: all interpreter language clean package test validate
+.PHONY: all interpreter language clean package validate
 all: interpreter
 
 language:
@@ -31,22 +31,19 @@ language:
 interpreter: src/Main.hs
 	$(GHC) --make -Wall -isrc -isrc/bnfc src/Main.hs -odir obj -hidir obj -o $@
 
-test:
-	./interpreter < ./tests.txt
-
 lint:
 	hlint ./src/*.hs
 
 validate:
 	@-cd ./test && ./validate.sh
 
-package: clean all
+package: clean
 	-rm -rf $(PKGNAME)
 	mkdir -p $(PKGNAME)
+	cp -r src $(PKGNAME)/
 	cp Language.cf $(PKGNAME)/
 	cp Makefile $(PKGNAME)/
-	cp docs/README.txt $(PKGNAME)/
-	cp docs/README.pdf $(PKGNAME)/
+	cp README.pdf $(PKGNAME)/
 	zip -r $(PKGNAME).zip $(PKGNAME)
 	-rm -rf $(PKGNAME)
 

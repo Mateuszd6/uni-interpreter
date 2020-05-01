@@ -1,4 +1,4 @@
-% Created 2020-05-01 Fri 12:15
+% Created 2020-05-01 Fri 16:41
 % Intended LaTeX compiler: pdflatex
 \documentclass[11pt]{article}
 \usepackage[utf8]{inputenc}
@@ -32,29 +32,53 @@
 \maketitle
 
 \subsubsection*{Changes from the previous version}
-\label{sec:orgcd0aa69}
+\label{sec:org68f8247}
 \begin{itemize}
 \item Add 'readonly' variables and func params, as I've realized they are
 obligatory in the 15-points milestone,
 \item Don't use builtin functions - they were causing too much trouble,
 \item Use pseudo-statement print and scan function (which accept any number of
 args),
-\item Added \texttt{assert} function that helps when testing,
-\item Removed \texttt{die} function, because it is basically an equivalent of
-\texttt{assert(false)},
+\item Added \texttt{assert} statement that helps when testing, with the obvious
+meaning and behaviour.
 \item Change some operator precedence because things like: \texttt\{if (1 + 3 >=
 4)\} didn't parse. Now they do,
 \item Add 'new' statement for initializing structs. Since the language does not
 support nulls by design, when declaring variable of a struct type, there was
 nothing that could go to the right-hand side instead of function call, which
 seemed weird. The 'new' syntax is exactly the same as in C\# and is presented
-at the end of \texttt{good/14-records.prg} test case,
+in its 'good' test case.
 \item Updated documentation according to these changes.
 \end{itemize}
 
+\subsubsection*{Makefile and running the test suite}
+\label{sec:org8de3ee1}
+\texttt{make} command will build the interpreter for sources. It won't by
+default regenerate BNFC files. For that use \texttt{make language}. It will
+start BNFC suite programs and then copy generated files to their appropriate
+directories, removing ones we don't want. All tests are in the \texttt{test}
+directory. There is a script to run the test suite, but easiest way to do it
+is by typing \texttt{make validate} into the command line. Tests that are
+supposed to fail have \texttt{//FAILS:} comment at the top. It is used for
+output comparison when testing. It is possible to disable static type
+checking in the \texttt{Main.hs} file and all tests should produce exactly
+the same results, including the error messages, expect all 12* tests, which
+should all fail in the first line because of the broken assertion.
+
+\subsubsection*{Running the program}
+\label{sec:org795f447}
+Interpreter can either take one and only parameter, which is a path to a
+file to execute, or when no params it reads the text from stdin. Note that
+when reading stdin, \texttt{scan} function will never work, and will always
+return value that indicates an error. Because every line starting with \# is
+ignored by the parser one can put
+\begin{minted}{cpp}
+#!/path/to/interpreter/can/be/relative
+\end{minted}
+at the first line of the file and run the files directly from the shell.
 
 \section*{Basics:}
-\label{sec:org8b00c75}
+\label{sec:org78c6b1c}
 The following language is an imperative, statically typed, mostly-C-like
 language, featuring with user-defined structs, local/unnamed functions with
 advanced local variables visibility options, arguments passed by value (no
@@ -80,27 +104,27 @@ and \texttt{false} for \texttt{int}, \texttt{string} and
 \texttt{bool}. Structs have all their members initiated recursively.
 
 \section*{Declarations:}
-\label{sec:org8a897dc}
+\label{sec:org7e58672}
 
 \subsubsection*{Define variable.}
-\label{sec:orga97ab57}
-\begin{verbatim}
+\label{sec:orgd3bf51f}
+\begin{minted}{cpp}
 // (type is either string / int / bool or user-defined struct (see: structs)):
 variable_name : variable_type ;
 foo : int ;
-\end{verbatim}
+\end{minted}
 
 \subsubsection*{Declare and assign value.}
-\label{sec:orga5517d0}
-\begin{verbatim}
+\label{sec:org81a7b82}
+\begin{minted}{cpp}
 foo : int = 4;
-\end{verbatim}
+\end{minted}
 
 \subsubsection*{Declare, assign but deduce the type.}
-\label{sec:org6f0345f}
-\begin{verbatim}
+\label{sec:orgccefde7}
+\begin{minted}{cpp}
 foo := 4;
-\end{verbatim}
+\end{minted}
 
 The idea is that user can 'skip' the part of declaration he does not want, like
 skip the type if type can be deduced (deducing type works, because the language
@@ -108,27 +132,27 @@ is statically typed). Also the difference between declaration and simple
 assigment is the \texttt{:} which appears in every type of declaration.
 
 Asignments however:
-\begin{verbatim}
+\begin{minted}{cpp}
 foo = 4;
-\end{verbatim}
+\end{minted}
 \ldots{} don't have this token and are simple C-like assignments.
 
 \subsubsection*{Also read-only variables are supported:}
-\label{sec:org6d1edb9}
-\begin{verbatim}
+\label{sec:org5d7f7de}
+\begin{minted}{cpp}
 foo! := 4; // Foo is now read-only.
 foo = 4; // Would cause an error.
-\end{verbatim}
+\end{minted}
 
 
 \subsection*{Expressions}
-\label{sec:org1bcdab0}
+\label{sec:orgded3e28}
 
 Expressions are basic arithmetic and logic expressions taken straight from C,
 expect operator \texttt{@} for string concatenation and IIFE (in grammar
 called EIife, described later here in the 'functions' part).
 
-\begin{verbatim}
+\begin{minted}{cpp}
 // Most of the syntax is C-like:
 if (boolean_expr)
 {
@@ -154,16 +178,16 @@ while (bar)
 while (bar)
     if (foo)
         return 5;
-\end{verbatim}
+\end{minted}
 
 \subsubsection*{For loops}
-\label{sec:org40e33a8}
+\label{sec:org7e31714}
 For is a little different. There is no range-for loop, for loops only go
 from integer to integer by one. The interpreter will decide (at runtime)
 whether we are iterating upwards on downwards. Iterator variable is
 read-only in the loop body, so can't be reassigned.
 
-\begin{verbatim}
+\begin{minted}{cpp}
 for (new_var_name : 1 .. 2)
 {
 }
@@ -200,7 +224,7 @@ while (foo)
 { } // Empty blocks works
 
 ;;;; // trailing ';' are accepted and not present in  ast, thanks to bnfc.
-\end{verbatim}
+\end{minted}
 
 However things like \texttt{if ();}, \texttt{while ();} \texttt{for (...);}
 \texttt{else ;} won't parse. It came out a bit accidentally, when I was
@@ -208,8 +232,8 @@ trying to eliminate parsing conflicts around \texttt{if else} expressions but I 
 it can be considered a feature.
 
 \subsubsection*{Struct definitions. Very similar to C, just with slightly different syntax.}
-\label{sec:org380325f}
-\begin{verbatim}
+\label{sec:org2d274f9}
+\begin{minted}{cpp}
 foo :: struct
 {
 }
@@ -244,14 +268,14 @@ x_copy = example_vector.x; // Getting struct members like in C.
 x_copy_q = example_quaterion.e.x; // dots can follow one another.
 // nope := example_vector.(e.x); // stuff like this won't parse of course.
 
-\end{verbatim}
+\end{minted}
 
 Of course in the above examples, the variables would be uninitialized, which
 would cause a runtime error.
 
 \subsubsection*{Structs can be defined for the scope:}
-\label{sec:orgf1e1abe}
-\begin{verbatim}
+\label{sec:org222db4a}
+\begin{minted}{cpp}
 {
     foobar :: struct
     {
@@ -269,10 +293,10 @@ would cause a runtime error.
     // it is rather pointless.
     n' : foobar = new foobar { zzz = "mateusz" };
 }
-\end{verbatim}
+\end{minted}
 
 \section*{Functions}
-\label{sec:orgec4e163}
+\label{sec:orgbd7b0dc}
 
 Most important feature of the language is a \texttt{!} (bind) operator. This was design
 to make code refactoring easier by specifying which variables can be accessed in
@@ -280,59 +304,59 @@ the block / lambda / function. There is a little difference between these
 anyway.
 
 \subsubsection*{Super boring example, regular named (global) function.}
-\label{sec:orgae04bf8}
-\begin{verbatim}
+\label{sec:orgc51ab52}
+\begin{minted}{cpp}
 // Function parameters also support read-only attribute. X can't be changed inside func body.
 exmaple1 :: (x! : int, y : int) -> int
 {
     return y * x;
 }
-\end{verbatim}
+\end{minted}
 
-\subsubsection*{Return type can be ommited, if function does not return.}
-\label{sec:org5b797a1}
-\begin{verbatim}
+\subsubsection*{Return type can be omitted, if function does not return.}
+\label{sec:orgbcbe79e}
+\begin{minted}{cpp}
 out : int = 0;
 exmaple2 :: (x : int, y : int)
 {
     out = y * x;
 }
-\end{verbatim}
+\end{minted}
 
 \subsubsection*{Function that binds a variable - only 'foo' and function params are visible inside the function body. Everything should be an interpreter error.}
-\label{sec:orgaac2297}
-\begin{verbatim}
+\label{sec:org9552ed7}
+\begin{minted}{cpp}
 foo : int = 12;
 exmaple3 :: (x : int, y: int) !(foo) -> int
 {
     return foo + y * x;
 }
-\end{verbatim}
+\end{minted}
 
 \subsubsection*{This function is pure. It is not the same as skipping '!' - single '!' means unction can refer to \underline{non} variables (aka. is pure), skipping '!' allows it to refer to all variables (like in C).}
-\label{sec:org23e3db3}
-\begin{verbatim}
+\label{sec:orgb426172}
+\begin{minted}{cpp}
 foo : int = 12;
 exmaple4 :: (x : int, y: int)! -> int
 {
     // foo can't be accessed here, the function is pure.
     return y * x;
 }
-\end{verbatim}
+\end{minted}
 
 \subsubsection*{This function is not pure, and can reference every variable in its scope. It means global variables + local scope variables, if function is defined in the local scope.}
-\label{sec:org2a173e1}
-\begin{verbatim}
+\label{sec:orgd740bd6}
+\begin{minted}{cpp}
 foo : int = 12;
 exmaple5 :: (x : int, y: int) -> int
 {
     return foo + y * x;
 }
-\end{verbatim}
+\end{minted}
 
 \subsubsection*{Nested functions.}
-\label{sec:org48253dc}
-\begin{verbatim}
+\label{sec:orgcfa410e}
+\begin{minted}{cpp}
 exmaple6 :: (x : int, y: int)! -> int
 {
     square :: (x : int)! -> int
@@ -342,11 +366,11 @@ exmaple6 :: (x : int, y: int)! -> int
 
     return square(x) + square(y);
 }
-\end{verbatim}
+\end{minted}
 
 \subsubsection*{Lambda expressions. Since we don't have a higher order funcs (no passing, no returning function), all we can do with it, is to immidietly invoke it (IIFE) This is usefull when we have block that caluclates something and we want to keep it as pure as possible.}
-\label{sec:org6e6e2d2}
-\begin{verbatim}
+\label{sec:org0217d3c}
+\begin{minted}{cpp}
 iife_example1 :: (x : int, y : int)!
 {
     out : int = 0;
@@ -359,11 +383,11 @@ iife_example1 :: (x : int, y : int)!
         out = x + y;
     }
 }
-\end{verbatim}
+\end{minted}
 
 \subsubsection*{We could make it a little more safe and refactoring friendly by binding x and y and out in the block, so that we can't refer to anything else.}
-\label{sec:org52b2bd2}
-\begin{verbatim}
+\label{sec:orgf9555a1}
+\begin{minted}{cpp}
 foo : int = 42;
 iife_example2 :: (x : int, y : int)!
 {
@@ -377,11 +401,11 @@ iife_example2 :: (x : int, y : int)!
         out = x + y;
     }
 }
-\end{verbatim}
+\end{minted}
 
 \subsubsection*{We have to declare out and then change if, which is ugly and bugprone, thats where IIFE comes to help us.}
-\label{sec:orgd3aaf22}
-\begin{verbatim}
+\label{sec:org656d2ee}
+\begin{minted}{cpp}
 iife_example3 :: (x : int, y : int)!
 {
     // We can define out and assgin it at the same time. Assing 'out' to
@@ -405,7 +429,7 @@ iife_example3 :: (x : int, y : int)!
     }();
     // ... which achieves the same, but is more ugly.
 }
-\end{verbatim}
+\end{minted}
 
 The whole idea about it is that is is very easy to extract code from block
 into 'binded' block or iife, into local function, into global function,
@@ -415,7 +439,7 @@ name). Which is not what most languages offer (like in C++, lambdas have
 everything differently than regular functions).
 
 \section*{Tuples:}
-\label{sec:org5095640}
+\label{sec:orga910013}
 
 Tuple syntax are (exclusively) square brackets. But the amount of stuff that
 user can do to a tuple is very limited (by design). So there is no nested
@@ -431,7 +455,7 @@ as single statement does not parse. Using \_ inside a tuple match is just an
 ignore. It can't however be used when \uline{returning} tuples - in that case all
 values must be specified (Compare TupleExp and TupleTarget).
 
-\begin{verbatim}
+\begin{minted}{cpp}
 {
     // Tuples can be used to create new variables:
     [x, y] := [1, 2]; // x and y and declared here.
@@ -450,11 +474,11 @@ values must be specified (Compare TupleExp and TupleTarget).
     // bacause rhs is list of expressions, and lhs identifiers / '_'.
     [_, y] := [1, 2];
 }
-\end{verbatim}
+\end{minted}
 
 \subsubsection*{Tuples can be returned from the function:}
-\label{sec:orgc702e08}
-\begin{verbatim}
+\label{sec:org1ee0f15}
+\begin{minted}{cpp}
 tuple_example :: ()! -> [int, int] {
     x : int = 12;
     y : int = x * x;
@@ -469,18 +493,18 @@ tuple_example :: ()! -> [int, int] {
 
     return [x, y];
 }();
-\end{verbatim}
+\end{minted}
 
 Nesting tuples is not supported. Tuple is not stand-alone expression. Empty
 tuples also are not supported. The following do not parse:
-\begin{verbatim}
+\begin{minted}{cpp}
 // _ = []; // as opposed to '_ = [1];' which does.
 // [1];
 // if ([true]) {}
-\end{verbatim}
+\end{minted}
 
 Operator \_ also works for assignments, but \uline{not} for declarations, so:
-\begin{verbatim}
+\begin{minted}{cpp}
 _ = "mateusz";
 _ = [ 1, 2, "mateusz" ];
 _ = foobar();
@@ -489,10 +513,10 @@ _ = foobar();
 // _ := [ 1, 2, "mateusz" ];
 // _ := foobar();
 // ... do not.
-\end{verbatim}
+\end{minted}
 
 \subsubsection*{The interpreter also provides \texttt{print}, \texttt{scan} and \texttt{assert} expressions}
-\label{sec:orgc0e3857}
+\label{sec:org35c6791}
 \begin{itemize}
 \item \texttt{print} - prints the expression to the screen. Must be a builtin
 type. Printing structs is not supported, printing tuples would not even
@@ -510,7 +534,7 @@ any IO error.
 \end{itemize}
 
 \section*{Disclaimer:}
-\label{sec:orgf8aa2cf}
+\label{sec:orgba87c3f}
 Most of the ideas here (especially the '!' operator, but also the basics for
 the assigment syntax) were invented (or at least gathered up and presented) by
 Jonathan Blow in his talk 'Ideas for a new programming language for
@@ -520,8 +544,8 @@ what I've came up with): \url{https://www.youtube.com/watch?v=TH9VCN6UkyQ}.
 \clearpage
 
 \section*{Cennik:}
-\label{sec:org3c46385}
-\begin{verbatim}
+\label{sec:orgbc61c08}
+\begin{minted}{cpp}
   Na 15 punktów
 X 01 (trzy typy)
 X 02 (literały, arytmetyka, porównania)
@@ -549,5 +573,5 @@ X 99     (iife)
 X 99     ('bind' operator)
 
 Razem: 30
-\end{verbatim}
+\end{minted}
 \end{document}

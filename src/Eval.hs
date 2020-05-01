@@ -267,7 +267,6 @@ evalVarDecl (DVDeclDeduce p (Ident vname) spec expr) st = do
 evalIfStmtImpl :: Expr PPos -> Stmt PPos -> Maybe (Stmt PPos) -> State -> CtrlT IO State
 evalIfStmtImpl expr stmt elseStmt st = do
   (cond, st') <- exprAs asBool expr st
-  lift $ putStrLn $ "evaluated bool: " ++ show cond
   if cond
     then evalStmt stmt st'
     else case elseStmt of
@@ -307,7 +306,6 @@ evalStmt (SAssert p expr) st = do
 
 evalStmt (SPrint _ exprs) st = do
   st' <- foldM (\s ex -> evalExpr ex s >>= lift . printFstRetSnd) st exprs
-  lift $ hFlush stdout -- Just in case
   return st'
 
 evalStmt (SIf _ expr stmt) st =
@@ -346,7 +344,6 @@ evalStmt (SExpr _ expr) st = snd <$> evalExpr expr st
 evalStmt (SVDecl _ vdecl) st = evalVarDecl vdecl st
 
 evalStmt (SFDecl p (Ident fname) (FDDefault _ params bd funRet stmts)) st = do
-  lift $ putStrLn $ "Declaring function named `" ++ fname ++ "'."
   retT <- toCtrlT $ parseRetType funRet st
   fParams <- toCtrlT $ funcToParams params st
   bindV <- toCtrlT $ getBindVars bd st
