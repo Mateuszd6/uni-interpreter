@@ -6,7 +6,6 @@ import Control.Monad (foldM, foldM_, unless)
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
 import Data.Bits (xor)
 import Data.Foldable (foldl')
-import System.IO (hFlush, stdout)
 import System.IO.Error (catchIOError)
 import Text.Read (readMaybe)
 import qualified Data.Map.Strict as Map

@@ -41,9 +41,10 @@ package: clean
 	-rm -rf $(PKGNAME)
 	mkdir -p $(PKGNAME)
 	cp -r src $(PKGNAME)/
+	cp -r test $(PKGNAME)/
 	cp Language.cf $(PKGNAME)/
 	cp Makefile $(PKGNAME)/
-	cp README.pdf $(PKGNAME)/
+	cp docs/README.pdf $(PKGNAME)/
 	zip -r $(PKGNAME).zip $(PKGNAME)
 	-rm -rf $(PKGNAME)
 
