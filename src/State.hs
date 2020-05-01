@@ -3,6 +3,7 @@
 
 module State where
 
+import Control.Applicative ((<|>))
 import Control.Monad (when, unless)
 import Control.Monad.Trans.Class (lift, MonadTrans(..))
 import Data.List (sort)
@@ -75,7 +76,9 @@ data State = State
     scopeCnt :: Int,
     stateStore :: Store,
     stateScope :: Scope,
-    bindVars :: [(Int, Set.Set VarId)]
+    bindVars :: [(Int, Set.Set VarId)],
+    currRetT :: Maybe
+    FRetT
   }
   deriving (Show)
 
@@ -129,10 +132,12 @@ typesStore :: State -> Map.Map TypeId StructDef
 typesStore = storeTypes . stateStore
 
 initialState :: State
-initialState = State 0
-                     (Store Map.empty Map.empty Map.empty 1 1 5)
-                     (Scope Map.empty Map.empty Map.empty)
-                     [(-1, Set.fromList [])]
+initialState = State
+                 0
+                 (Store Map.empty Map.empty Map.empty 1 1 5)
+                 (Scope Map.empty Map.empty Map.empty)
+                 [(-1, Set.fromList [])]
+                 Nothing
 
 -- CtrlT moand, which nests another monad in Error Monad (wrapped so that we can have
 -- returns/breaks). Basically used only with IO monad in the entire project...
@@ -204,7 +209,7 @@ ctrlToError (CtrlException expType _) = Fail $ EDUncoughtedExc (show expType) (g
 
 -- Create new variable and add it to the state.
 createVar :: String -> Bool -> Var -> PPos -> State -> Error (VarId, State)
-createVar name rdOnly v p s@(State c str@(Store vars _ _ next _ _) scp@(Scope vnames _ _) _) =
+createVar name rdOnly v p s@(State c str@(Store vars _ _ next _ _) scp@(Scope vnames _ _) _ _) =
   let varInfo = VarInfo (scopeCnt s) rdOnly
       storeVars' = Map.insert next (v, varInfo) vars
   in do
@@ -215,7 +220,7 @@ createVar name rdOnly v p s@(State c str@(Store vars _ _ next _ _) scp@(Scope vn
 
 createFunc :: String -> Stmt PPos -> [Param] -> FRetT -> Maybe (Set.Set VarId) ->
               PPos -> State -> Error (FunId, State)
-createFunc name body params ret bind p st@(State c str@Store { nextFuncId = next } _ _) =
+createFunc name body params ret bind p st@(State c str@Store { nextFuncId = next } _ _ _) =
   let scp' = (stateScope st){ scopeFuncs = Map.insert name next (funcsScope st) }
       storeFuncs' = Map.insert next func (funcsStore st)
       func = Func next body ret params bind scp' c
@@ -227,7 +232,7 @@ createFunc name body params ret bind p st@(State c str@Store { nextFuncId = next
                stateScope = scp' })
 
 createStruct :: String -> PPos -> [(String, TypeId)] -> State -> Error (TypeId, State)
-createStruct name p fields st@(State _ str@Store { nextTypeId = next } _ _) =
+createStruct name p fields st@(State _ str@Store { nextTypeId = next } _ _ _) =
   let storeTypes' = Map.insert next (StructDef name $ Map.fromList fields) (storeTypes str)
       scopeTypes' = Map.insert name next (typesScope st)
   in do
@@ -287,7 +292,7 @@ getTypeStruct name p st = errorFromMaybe (EDTypeNotFound name p) $
 
 -- This function does not perform the type check!!
 setVar :: VarId -> Var -> PPos -> State -> Error State
-setVar vId val p s@(State _ str _ _) = do
+setVar vId val p s@(State _ str _ _ _) = do
   -- This should never fail to lookup the var, unless there is a bug. That's why we give a
   -- variable an artificial name.
   (_, info) <- getVarImpl vId ("ID=" ++ show vId) p s
@@ -378,24 +383,26 @@ lvalueMem lv st = (vmemb, ) <$> getVar vname p st
 
 -- To avoid code duplication in scope and scope2.
 scopeA :: (a -> State) -> (a -> State -> a) ->
-         (State -> CtrlT IO a) ->
-         Maybe (Set.Set VarId) -> State -> CtrlT IO a
-scopeA getS setS fun bind st =
+          (State -> CtrlT IO a) -> Maybe FRetT ->
+          Maybe (Set.Set VarId) -> State -> CtrlT IO a
+scopeA getS setS fun fret bind st =
   let newBind = case bind of
                   Nothing -> bindVars st
                   Just set -> (scopeCnt st + 1, set) : bindVars st
+      nextFRetT = (fret Control.Applicative.<|> currRetT st)
   in do
-    retv <- fun st { scopeCnt = scopeCnt st + 1, bindVars = newBind }
+    retv <- fun st { scopeCnt = scopeCnt st + 1, bindVars = newBind, currRetT = nextFRetT }
     return $ setS retv (getS retv){ scopeCnt = scopeCnt st,
                                     stateScope = stateScope st,
-                                    bindVars = bindVars st }
+                                    bindVars = bindVars st,
+                                    currRetT = currRetT st }
     -- Rollbacks scope and bind vars after leaving the scope.
 
-scope :: (State -> CtrlT IO State) -> Maybe (Set.Set VarId) -> State
+scope :: (State -> CtrlT IO State) -> Maybe FRetT -> Maybe (Set.Set VarId) -> State
       -> CtrlT IO State
 scope = scopeA id (\_ x -> x)
 
-scope2 :: (State -> CtrlT IO (a, State)) -> Maybe (Set.Set VarId) -> State
+scope2 :: (State -> CtrlT IO (a, State)) -> Maybe FRetT -> Maybe (Set.Set VarId) -> State
        -> CtrlT IO (a, State)
 scope2 = scopeA snd (\(x, _) z -> (x, z))
 
@@ -440,6 +447,16 @@ catchContinue = catch (\ctrl -> case ctrl of
     CtrlException (ExContinue _) s -> CtrlRegular $ Ok s
     _ -> ctrl)
 
+expectReturnValue :: Monad m => FRetT -> PPos -> CtrlT m State -> CtrlT m (Var, State)
+expectReturnValue retT p = catch (\case
+    CtrlException (ExReturn p0 VEmpty) _ -> CtrlRegular $ Fail $ EDReturnVoid p0
+    CtrlException (ExReturn p0 v) st' -> CtrlRegular $ enforceRetType v retT p0 st'
+                                         >> return (v, st')
+    CtrlRegular (Fail r) -> CtrlRegular $ Fail r
+    _ -> CtrlRegular $ Fail $ EDNoReturn p)
+
+-- Not the same as expectReturnValue, because we allow void functions, not to
+-- return at all.
 catchReturnVoid :: Monad m => PPos -> CtrlT m State -> CtrlT m (Var, State)
 catchReturnVoid _ = catch (\case
     CtrlException (ExReturn _ VEmpty) st' -> CtrlRegular $ Ok (VEmpty, st')
@@ -447,13 +464,6 @@ catchReturnVoid _ = catch (\case
     CtrlRegular (Ok st') -> CtrlRegular $ Ok (VEmpty, st')
     CtrlException x y -> CtrlException x y
     CtrlRegular (Fail r) -> CtrlRegular $ Fail r)
-
-expectReturnValue :: Monad m => FRetT -> PPos -> CtrlT m State -> CtrlT m (Var, State)
-expectReturnValue retT p = catch (\case
-    CtrlException (ExReturn p0 VEmpty) _ -> CtrlRegular $ Fail $ EDReturnVoid p0
-    CtrlException (ExReturn p0 v) st' -> CtrlRegular $ enforceRetType v retT p0 st' >> return (v, st')
-    CtrlRegular (Fail r) -> CtrlRegular $ Fail r
-    _ -> CtrlRegular $ Fail $ EDNoReturn p)
 
 dontAllowBreakContinue :: Monad m => CtrlT m a -> CtrlT m a
 dontAllowBreakContinue = catch (\ctrl -> case ctrl of
@@ -475,6 +485,16 @@ enforceParamLengthEqual p expected got =
 enforceType :: Var -> TypeId -> PPos -> State -> Error ()
 enforceType v tId p st = when (varTypeId v /= tId) $ Fail $
   EDTypeError (getTypeName tId st) (getTypeName (varTypeId v) st) p
+
+enforceReturnIsCorret :: Var -> FRetT -> PPos -> State -> Error ()
+enforceReturnIsCorret v retT p st =
+  case (v, retT) of
+    (VTuple _, FRetTSinge _) -> Fail $ EDTupleReturned p
+    (VTuple _, FRetTTuple _) -> enforceRetType v retT p st
+    (_, FRetTTuple _) -> Fail $ EDValueReturned p
+    (VEmpty, FRetTSinge tId) -> when (tId /= voidT) (Fail $ EDReturnVoid p)
+    (_, FRetTSinge 0) -> Fail $ EDNoReturnNonVoid p
+    _ -> enforceRetType v retT p st
 
 enforceRetType :: Var -> FRetT -> PPos -> State -> Error ()
 enforceRetType (VTuple _) (FRetTSinge _) p _ = Fail $ EDTupleReturned p
@@ -542,11 +562,11 @@ enforceNotParamRepeated params ed =
        _ -> return ()
 
 enforceBind :: VarId -> Int -> String -> PPos -> State -> Error ()
-enforceBind vId scopeN n p (State _ _ _ ((i, set):_))
+enforceBind vId scopeN n p (State _ _ _ ((i, set):_) _)
   | scopeN >= i = return () -- Variable declared insinde last bind block.
   | Set.member vId set = return () -- Variable binded in the curr bind scope.
   | otherwise = Fail $ EDBind n p
-enforceBind _ _ _ _ (State _ _ _ []) = undefined -- We always have at least one bind rule
+enforceBind _ _ _ _ (State _ _ _ [] _) = undefined -- We always have at least one bind rule
 
 enforceVarIsNotReadOnly :: VarInfo -> PPos -> Error ()
 enforceVarIsNotReadOnly info p = when (viIsReadOnly info) $ Fail $ EDVarReadOnly p

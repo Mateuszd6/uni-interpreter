@@ -29,7 +29,7 @@ language:
 	-mv -f AbsLanguage.hs ErrM.hs LexLanguage.hs ParLanguage.hs ./src
 
 interpreter: src/Main.hs
-	$(GHC) -Wall --make -isrc src/Main.hs -odir obj -hidir obj -o $@
+	$(GHC) --make -Wall -isrc -isrc/bnfc src/Main.hs -odir obj -hidir obj -o $@
 
 test:
 	./interpreter < ./tests.txt

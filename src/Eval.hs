@@ -191,7 +191,8 @@ evalExpr (EFnCall p (Ident fname) params) st = do
   toCtrlT $ enforceParamLengthEqual p (length $ funcParams func) (length invokeParams)
   toCtrlT $ enforceFnCallBindRules fname func p st
 
-  scope2 (returnHanlder func p . evalFunction func invokeParams p) Nothing st'
+  scope2 (returnHanlder func p . evalFunction func invokeParams p)
+         (Just $ funcRetT func) Nothing st'
 
 evalExpr (EIife p (FDDefault _ params bind funRet stmts) invkParams) st = do
   retT <- toCtrlT $ parseRetType funRet st
@@ -205,7 +206,7 @@ evalExpr (EIife p (FDDefault _ params bind funRet stmts) invkParams) st = do
   toCtrlT $ enforceParamLengthEqual p (length $ funcParams func) (length invokeParams)
   -- No need to enforce bind rules, as iife is defined in the scope its used.
 
-  scope2 (returnHanlder func p . evalFunction func invokeParams p) Nothing st'
+  scope2 (returnHanlder func p . evalFunction func invokeParams p) (Just retT) Nothing st'
 
 evalExpr (EScan _ types) st = do
   toCtrlT $ mapM_ enforceIsScannable types
@@ -297,7 +298,7 @@ evalStmt :: Stmt PPos -> State -> CtrlT IO State
 
 evalStmt (SBlock _ bind stmts) st = do
   bindV <- toCtrlT $ getBindVars bind st
-  scope (flip (foldM (flip evalStmt)) stmts) bindV st
+  scope (flip (foldM (flip evalStmt)) stmts) Nothing bindV st
 
 evalStmt (SAssert p expr) st = do
   (cond, st') <- exprAs asBool expr st
@@ -309,19 +310,21 @@ evalStmt (SPrint _ exprs) st = do
   lift $ hFlush stdout -- Just in case
   return st'
 
-evalStmt (SIf _ expr stmt) st = scope (evalIfStmtImpl expr stmt Nothing) Nothing st
+evalStmt (SIf _ expr stmt) st =
+  scope (evalIfStmtImpl expr stmt Nothing) Nothing Nothing st
+
 evalStmt (SIfElse _ expr stmt elStmt) st =
-  scope (evalIfStmtImpl expr stmt (Just elStmt)) Nothing st
+  scope (evalIfStmtImpl expr stmt (Just elStmt)) Nothing Nothing st
 
 evalStmt (SWhile _ expr_ stmt_) st_ = scope (catchBreak . evalWhileImpl expr_ stmt_)
-                                      Nothing st_
+                                      Nothing Nothing st_
   where
     evalWhileImpl :: Expr PPos -> Stmt PPos -> State -> CtrlT IO State
     evalWhileImpl expr stmt st = do
       (cond, st') <- exprAs asBool expr st
       if cond
         then do
-          st'' <- scope (catchContinue . evalStmt stmt) Nothing st'
+          st'' <- scope (catchContinue . evalStmt stmt) Nothing Nothing st'
           evalWhileImpl expr stmt st''
         else return st'
 
@@ -332,9 +335,10 @@ evalStmt e@(SFor p (Ident iterName) eStart eEnd stmt) st = do
       loopStep i s = do
         s' <- toCtrlT $ evalVarDeclImpl (VSReadOnly p) iterName (VInt i) (getPos e) s
         catchContinue $ evalStmt stmt s'
-      loopBody s = catchBreak $ foldM (\acc i -> scope (loopStep i) Nothing acc) s iters
+      loopBody s = catchBreak $ foldM (\acc i -> scope (loopStep i) Nothing Nothing acc)
+                                      s iters
 
-  scope loopBody Nothing st''
+  scope loopBody Nothing Nothing st''
 
 -- Discard expression result and return new state.
 evalStmt (SExpr _ expr) st = snd <$> evalExpr expr st
@@ -386,17 +390,25 @@ evalStmt (SAssign p lv expr) st = do
       newStruct <- asgnStructField (tId, struct) membs asgnVal p st'
       setVar vId (VStruct tId newStruct) p st'
 
-evalStmt (SReturn p (RExNone _)) st = throw (ExReturn p VEmpty) st
+evalStmt (SReturn p (RExNone _)) st = evalReturn VEmpty p st
+
 evalStmt (SReturn p (RExRegular _ (EOTRegular _ expr))) st = do
   (result, st') <- evalExpr expr st
-  throw (ExReturn p result) st'
+  evalReturn result p st'
 
 evalStmt (SReturn p (RExRegular _ (EOTTuple _ exprs))) st = do
   (result, st') <- evalExprsListr exprs st
-  throw (ExReturn p (VTuple result)) st'
+  evalReturn (VTuple result) p st'
 
 evalStmt (SBreak p) st = throw (ExBreak p) st
 evalStmt (SCont p) st = throw (ExContinue p) st
+
+evalReturn :: Var -> PPos -> State -> CtrlT IO State
+evalReturn v p st = do
+  -- If we do have a return value specified, check if it matches. If not, this
+  -- means the return is out of context, and probably won't be catched anyway.
+  toCtrlT $ maybe (Ok ()) (\r -> enforceReturnIsCorret v r p st) (currRetT st)
+  throw (ExReturn p v) st
 
 evalProgram :: Program PPos -> CtrlT IO ()
 evalProgram (Prog _ stmts) = dontAllowBreakContinue $ dontAllowReturn $

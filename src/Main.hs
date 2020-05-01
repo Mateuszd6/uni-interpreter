@@ -16,7 +16,7 @@ run :: String -> String -> IO ()
 run fname pText = do
   result <- runCtrlT $ do
     parsed <- toCtrlT $ parseProgram pText
-    when (doStaticTypeCheck) (toCtrlT $ staticChckProgram parsed)
+    when doStaticTypeCheck (toCtrlT $ staticChckProgram parsed)
     evalProgram parsed
 
   -- Handle any kind of error in one place:
