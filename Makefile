@@ -26,7 +26,7 @@ language:
 
 	@# Can't tell BNFC that I don't want these:
 	-rm -f DocLanguage.txt PrintLanguage.hs SkelLanguage.hs TestLanguage.hs
-	-mv -f AbsLanguage.hs ErrM.hs LexLanguage.hs ParLanguage.hs ./src
+	-mv -f AbsLanguage.hs ErrM.hs LexLanguage.hs ParLanguage.hs ./src/bnfc
 
 interpreter: src/Main.hs
 	$(GHC) --make -Wall -isrc -isrc/bnfc src/Main.hs -odir obj -hidir obj -o $@
