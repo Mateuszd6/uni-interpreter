@@ -5,7 +5,7 @@ get_int :: () -> int {
 }
 
 use_bool :: (b : bool) {
-    _ = b; // TODO: Bring it back?
+    _ = b;
 }
 
 {

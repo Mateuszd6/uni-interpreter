@@ -10,8 +10,8 @@ foobar :: (x : int) -> int {
     // execution path. This fails.
 }
 
-// TODO: Asigning void should never work, because we can then declare? a
-//       variable of type void.
+
+
 _ = voidFunc(1);
 
 num := foobar(1); // Fails, no return stmt.

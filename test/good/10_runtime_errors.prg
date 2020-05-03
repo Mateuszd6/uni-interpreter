@@ -1,5 +1,5 @@
 // FAILS: 10_runtime_errors.prg:17:20: Divide by zero.
-// TODO: Decide if we support uninitialized variables and if so add here an example.
+//
 
 getNumber :: () -> int {
     return 4;

@@ -1,6 +1,6 @@
 // As a sidenote: operators '==' and '!=' would work with any builtin
 // type. Other operators (like '+') are strictly typed and will cause error if
-// used inproperly. See test bad/TODO for exaples.
+// used inproperly.
 
 {
     int_var : int = 3;

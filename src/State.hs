@@ -103,7 +103,6 @@ data Scope = Scope
   deriving (Show)
 
 -- Avoid hardcodeing typeids.
--- TODO: make sure they are used everywhere
 voidT :: TypeId
 voidT = 0
 intT :: TypeId

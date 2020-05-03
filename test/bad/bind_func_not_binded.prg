@@ -9,5 +9,5 @@ foo :: (a : int, b : int)! {
 
 // But we have to call this to get an error. This feature was proposed for
 // compiled languages and getting this error in compile time would be much more
-// useful. // TODO: Static check - this may be irrelevant?
+// useful.
 foo(1, 2);

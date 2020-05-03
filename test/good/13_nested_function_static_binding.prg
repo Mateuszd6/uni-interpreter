@@ -1,4 +1,4 @@
-// TODO: foo := -1 does not parse!!
+//
 foo := 999; // This one will be hidden all the time and is never touched.
 
 {
