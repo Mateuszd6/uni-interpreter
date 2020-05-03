@@ -8,37 +8,79 @@
 #+latex_header: \usepackage{minted}
 #+latex_header: \usepackage{xcolor}
 
-*** Changes from the previous version
-    - Add 'readonly' variables and func params, as I've realized they are
-      obligatory in the 15-points milestone,
-    - Don't use builtin functions - they were causing too much trouble,
-    - Use pseudo-statement print and scan function (which accept any number of
-      args),
-    - Added \texttt{assert} statement that helps when testing, with the obvious
-      meaning and behaviour.
-    - Change some operator precedence because things like: \texttt{if (1 + 3 >=
-      4)} didn't parse. Now they do,
-    - Add 'new' statement for initializing structs. Since the language does not
-      support nulls by design, when declaring variable of a struct type, there was
-      nothing that could go to the right-hand side instead of function call, which
-      seemed weird. The 'new' syntax is exactly the same as in C# and is presented
-      in its 'good' test case.
-    - Updated documentation according to these changes.
+** Changes from the previous version
+   - Add 'readonly' modifier to variables variables and func params, as I've
+     realized they are obligatory in the 15-points milestone,
+   - Don't use builtin functions - they were causing too much trouble,
+   - Use pseudo-statement print and scan function (which accept any number of
+     args),
+   - Added \texttt{assert} statement that helps when testing, with the obvious
+     meaning and behaviour.
+   - Change some operator precedence because things like: \texttt{if (1 + 3 >=
+     4)} didn't parse. Now they do,
+   - Add 'new' statement for initializing structs. Since the language does not
+     support nulls by design, when declaring variable of a struct type, there was
+     nothing that could go to the right-hand side instead of function call, which
+     seemed weird. The 'new' syntax is exactly the same as in C# and is presented
+     in its 'good' test case.
+   - Updated documentation according to these changes.
+** Approach
+   The approach is really straight-forward.
 
-*** Makefile and running the test suite
-    \texttt{make} command will build the interpreter for sources. It won't by
-    default regenerate BNFC files. For that use \texttt{make language}. It will
-    start BNFC suite programs and then copy generated files to their appropriate
-    directories, removing ones we don't want. All tests are in the \texttt{test}
-    directory. There is a script to run the test suite, but easiest way to do it
-    is by typing \texttt{make validate} into the command line. Tests that are
-    supposed to fail have \texttt{//FAILS:} comment at the top. It is used for
-    output comparison when testing. It is possible to disable static type
-    checking in the \texttt{Main.hs} file and all tests should produce exactly
-    the same results, including the error messages, expect all 12* tests, which
-    should all fail in the first line because of the broken assertion.
+   I've decided not to use State monad, I just couldn't get some value of it and
+   it caused some problems. Most function are built around Error monad
+   (Error.hs), which is very similar to ErrM and I could just change that one,
+   but I didn't want to edit machine-generated code for that. Error monad fails
+   with \texttt{ErrorDetail} object, which describes any kind of error in the
+   interpreter.
 
-*** Running the program
+   The program state is built on maps ("strict" versions are used for
+   performance reasons, the program wouldn't benefit much from laziness here).
+   State is split into two groups - Scope and Store. Scope contains a names of
+   variables, functions and user-defined types. Store contains values. Objects
+   are identified with ids, which are unique numbers given to them. For example,
+   assume variable "foo" of type string and value "foobar". Scope maps "foo"
+   into VarId = 4, and Store maps 4 into an object of type string and value
+   "foobar". This allows for static correct binding when calling scope-defined
+   functions (see for example test good/13 nested...). When calling a function,
+   or any other scoped operation, we change the scope (to have old name ->
+   object id mapping), but keep the store (to have current object _values_).
+
+   In order to allow for functions that return a value, break and continue
+   statements etc, we use \texttt{CtrlFlow} functor and \texttt{CtrlT} monad
+   (State.h). Since \texttt{CtrlFlow} is never used alone it does not have to be
+   a monad. \texttt{CtrlT} is a monad, which combines the flow with \texttt{IO}.
+   They wrap the Error monad also adding a \texttt{CtrlException} state.
+   (Exception is not the greatest name, since the language don't have them, but
+   I couldn't came up with anything better).
+
+   Many functions that don't return/break and just return Error are "promoted"
+   to the \texttt{CtrlT} monad with the \texttt{toCtrlT} function, used across
+   the whole project.
+
+   Static type check module is separate from the Eval module. It's very similar
+   to Evaluation module, which makes them very similar, however I tired to reuse
+   as many things as I could. The type-checking is basically running functions,
+   that check correctness and then returning a "default" value of a desired type
+   (if in the expression). The main difference is, expressions in Static module
+   don't return a new state, because they can't change it in any meaningful way
+   for the type checker (evaluating a single expression, i.eg.: a function
+   argument), can't create a new type or change a type of any variable visible
+   in the scope.
+** Makefile and running the test suite
+   \texttt{make} command will build the interpreter for sources. It won't by
+   default regenerate BNFC files. For that use \texttt{make language}. It will
+   start BNFC suite programs and then copy generated files to their appropriate
+   directories, removing ones we don't want. All tests are in the \texttt{test}
+   directory. There is a script to run the test suite, but easiest way to do it
+   is by typing \texttt{make validate} into the command line. Tests that are
+   supposed to fail have \texttt{//FAILS:} comment at the top. It is used for
+   output comparison when testing. It is possible to disable static type
+   checking in the \texttt{Main.hs} file and all tests should produce exactly
+   the same results, including the error messages, expect all 12* tests, which
+   should all fail in the first line because of the broken assertion.
+
+** Running the program
     Interpreter can either take one and only parameter, which is a path to a
     file to execute, or when no params it reads the text from stdin. Note that
     when reading stdin, \texttt{scan} function will never work, and will always

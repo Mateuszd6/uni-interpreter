@@ -1,4 +1,4 @@
-% Created 2020-05-01 Fri 16:41
+% Created 2020-05-03 Sun 21:48
 % Intended LaTeX compiler: pdflatex
 \documentclass[11pt]{article}
 \usepackage[utf8]{inputenc}
@@ -31,11 +31,11 @@
 
 \maketitle
 
-\subsubsection*{Changes from the previous version}
-\label{sec:org68f8247}
+\subsection*{Changes from the previous version}
+\label{sec:orgdbfd06f}
 \begin{itemize}
-\item Add 'readonly' variables and func params, as I've realized they are
-obligatory in the 15-points milestone,
+\item Add 'readonly' modifier to variables variables and func params, as I've
+realized they are obligatory in the 15-points milestone,
 \item Don't use builtin functions - they were causing too much trouble,
 \item Use pseudo-statement print and scan function (which accept any number of
 args),
@@ -50,9 +50,52 @@ seemed weird. The 'new' syntax is exactly the same as in C\# and is presented
 in its 'good' test case.
 \item Updated documentation according to these changes.
 \end{itemize}
+\subsection*{Approach}
+\label{sec:org3a1f7f9}
+The approach is really straight-forward.
 
-\subsubsection*{Makefile and running the test suite}
-\label{sec:org8de3ee1}
+I've decided not to use State monad, I just couldn't get some value of it and
+it caused some problems. Most function are built around Error monad
+(Error.hs), which is very similar to ErrM and I could just change that one,
+but I didn't want to edit machine-generated code for that. Error monad fails
+with \texttt{ErrorDetail} object, which describes any kind of error in the
+interpreter.
+
+The program state is built on maps ("strict" versions are used for
+performance reasons, the program wouldn't benefit much from laziness here).
+State is split into two groups - Scope and Store. Scope contains a names of
+variables, functions and user-defined types. Store contains values. Objects
+are identified with ids, which are unique numbers given to them. For example,
+assume variable "foo" of type string and value "foobar". Scope maps "foo"
+into VarId = 4, and Store maps 4 into an object of type string and value
+"foobar". This allows for static correct binding when calling scope-defined
+functions (see for example test good/13 nested\ldots{}). When calling a function,
+or any other scoped operation, we change the scope (to have old name ->
+object id mapping), but keep the store (to have current object \uline{values}).
+
+In order to allow for functions that return a value, break and continue
+statements etc, we use \texttt{CtrlFlow} functor and \texttt{CtrlT} monad
+(State.h). Since \texttt{CtrlFlow} is never used alone it does not have to be
+a monad. \texttt{CtrlT} is a monad, which combines the flow with \texttt{IO}.
+They wrap the Error monad also adding a \texttt{CtrlException} state.
+(Exception is not the greatest name, since the language don't have them, but
+I couldn't came up with anything better).
+
+Many functions that don't return/break and just return Error are "promoted"
+to the \texttt{CtrlT} monad with the \texttt{toCtrlT} function, used across
+the whole project.
+
+Static type check module is separate from the Eval module. It's very similar
+to Evaluation module, which makes them very similar, however I tired to reuse
+as many things as I could. The type-checking is basically running functions,
+that check correctness and then returning a "default" value of a desired type
+(if in the expression). The main difference is, expressions in Static module
+don't return a new state, because they can't change it in any meaningful way
+for the type checker (evaluating a single expression, i.eg.: a function
+argument), can't create a new type or change a type of any variable visible
+in the scope.
+\subsection*{Makefile and running the test suite}
+\label{sec:org013bb03}
 \texttt{make} command will build the interpreter for sources. It won't by
 default regenerate BNFC files. For that use \texttt{make language}. It will
 start BNFC suite programs and then copy generated files to their appropriate
@@ -65,8 +108,8 @@ checking in the \texttt{Main.hs} file and all tests should produce exactly
 the same results, including the error messages, expect all 12* tests, which
 should all fail in the first line because of the broken assertion.
 
-\subsubsection*{Running the program}
-\label{sec:org795f447}
+\subsection*{Running the program}
+\label{sec:org3264c6b}
 Interpreter can either take one and only parameter, which is a path to a
 file to execute, or when no params it reads the text from stdin. Note that
 when reading stdin, \texttt{scan} function will never work, and will always
@@ -78,7 +121,7 @@ ignored by the parser one can put
 at the first line of the file and run the files directly from the shell.
 
 \section*{Basics:}
-\label{sec:org78c6b1c}
+\label{sec:org09fac9d}
 The following language is an imperative, statically typed, mostly-C-like
 language, featuring with user-defined structs, local/unnamed functions with
 advanced local variables visibility options, arguments passed by value (no
@@ -104,10 +147,10 @@ and \texttt{false} for \texttt{int}, \texttt{string} and
 \texttt{bool}. Structs have all their members initiated recursively.
 
 \section*{Declarations:}
-\label{sec:org7e58672}
+\label{sec:orgf258dea}
 
 \subsubsection*{Define variable.}
-\label{sec:orgd3bf51f}
+\label{sec:orga468156}
 \begin{minted}{cpp}
 // (type is either string / int / bool or user-defined struct (see: structs)):
 variable_name : variable_type ;
@@ -115,13 +158,13 @@ foo : int ;
 \end{minted}
 
 \subsubsection*{Declare and assign value.}
-\label{sec:org81a7b82}
+\label{sec:org801f62f}
 \begin{minted}{cpp}
 foo : int = 4;
 \end{minted}
 
 \subsubsection*{Declare, assign but deduce the type.}
-\label{sec:orgccefde7}
+\label{sec:org7f9d93d}
 \begin{minted}{cpp}
 foo := 4;
 \end{minted}
@@ -138,7 +181,7 @@ foo = 4;
 \ldots{} don't have this token and are simple C-like assignments.
 
 \subsubsection*{Also read-only variables are supported:}
-\label{sec:org5d7f7de}
+\label{sec:orgcfddf84}
 \begin{minted}{cpp}
 foo! := 4; // Foo is now read-only.
 foo = 4; // Would cause an error.
@@ -146,7 +189,7 @@ foo = 4; // Would cause an error.
 
 
 \subsection*{Expressions}
-\label{sec:orgded3e28}
+\label{sec:org0fbd163}
 
 Expressions are basic arithmetic and logic expressions taken straight from C,
 expect operator \texttt{@} for string concatenation and IIFE (in grammar
@@ -181,7 +224,7 @@ while (bar)
 \end{minted}
 
 \subsubsection*{For loops}
-\label{sec:org7e31714}
+\label{sec:org33a8d93}
 For is a little different. There is no range-for loop, for loops only go
 from integer to integer by one. The interpreter will decide (at runtime)
 whether we are iterating upwards on downwards. Iterator variable is
@@ -232,7 +275,7 @@ trying to eliminate parsing conflicts around \texttt{if else} expressions but I 
 it can be considered a feature.
 
 \subsubsection*{Struct definitions. Very similar to C, just with slightly different syntax.}
-\label{sec:org2d274f9}
+\label{sec:org30c3951}
 \begin{minted}{cpp}
 foo :: struct
 {
@@ -274,7 +317,7 @@ Of course in the above examples, the variables would be uninitialized, which
 would cause a runtime error.
 
 \subsubsection*{Structs can be defined for the scope:}
-\label{sec:org222db4a}
+\label{sec:orgdae7afd}
 \begin{minted}{cpp}
 {
     foobar :: struct
@@ -296,7 +339,7 @@ would cause a runtime error.
 \end{minted}
 
 \section*{Functions}
-\label{sec:orgbd7b0dc}
+\label{sec:orgf4cc570}
 
 Most important feature of the language is a \texttt{!} (bind) operator. This was design
 to make code refactoring easier by specifying which variables can be accessed in
@@ -304,7 +347,7 @@ the block / lambda / function. There is a little difference between these
 anyway.
 
 \subsubsection*{Super boring example, regular named (global) function.}
-\label{sec:orgc51ab52}
+\label{sec:org0ddccd8}
 \begin{minted}{cpp}
 // Function parameters also support read-only attribute. X can't be changed inside func body.
 exmaple1 :: (x! : int, y : int) -> int
@@ -314,7 +357,7 @@ exmaple1 :: (x! : int, y : int) -> int
 \end{minted}
 
 \subsubsection*{Return type can be omitted, if function does not return.}
-\label{sec:orgbcbe79e}
+\label{sec:orgc5f864e}
 \begin{minted}{cpp}
 out : int = 0;
 exmaple2 :: (x : int, y : int)
@@ -324,7 +367,7 @@ exmaple2 :: (x : int, y : int)
 \end{minted}
 
 \subsubsection*{Function that binds a variable - only 'foo' and function params are visible inside the function body. Everything should be an interpreter error.}
-\label{sec:org9552ed7}
+\label{sec:org1920550}
 \begin{minted}{cpp}
 foo : int = 12;
 exmaple3 :: (x : int, y: int) !(foo) -> int
@@ -334,7 +377,7 @@ exmaple3 :: (x : int, y: int) !(foo) -> int
 \end{minted}
 
 \subsubsection*{This function is pure. It is not the same as skipping '!' - single '!' means unction can refer to \underline{non} variables (aka. is pure), skipping '!' allows it to refer to all variables (like in C).}
-\label{sec:orgb426172}
+\label{sec:org874f13d}
 \begin{minted}{cpp}
 foo : int = 12;
 exmaple4 :: (x : int, y: int)! -> int
@@ -345,7 +388,7 @@ exmaple4 :: (x : int, y: int)! -> int
 \end{minted}
 
 \subsubsection*{This function is not pure, and can reference every variable in its scope. It means global variables + local scope variables, if function is defined in the local scope.}
-\label{sec:orgd740bd6}
+\label{sec:orgcb3131b}
 \begin{minted}{cpp}
 foo : int = 12;
 exmaple5 :: (x : int, y: int) -> int
@@ -355,7 +398,7 @@ exmaple5 :: (x : int, y: int) -> int
 \end{minted}
 
 \subsubsection*{Nested functions.}
-\label{sec:orgcfa410e}
+\label{sec:org7261d35}
 \begin{minted}{cpp}
 exmaple6 :: (x : int, y: int)! -> int
 {
@@ -369,7 +412,7 @@ exmaple6 :: (x : int, y: int)! -> int
 \end{minted}
 
 \subsubsection*{Lambda expressions. Since we don't have a higher order funcs (no passing, no returning function), all we can do with it, is to immidietly invoke it (IIFE) This is usefull when we have block that caluclates something and we want to keep it as pure as possible.}
-\label{sec:org0217d3c}
+\label{sec:org4808bb9}
 \begin{minted}{cpp}
 iife_example1 :: (x : int, y : int)!
 {
@@ -386,7 +429,7 @@ iife_example1 :: (x : int, y : int)!
 \end{minted}
 
 \subsubsection*{We could make it a little more safe and refactoring friendly by binding x and y and out in the block, so that we can't refer to anything else.}
-\label{sec:orgf9555a1}
+\label{sec:orgcead705}
 \begin{minted}{cpp}
 foo : int = 42;
 iife_example2 :: (x : int, y : int)!
@@ -404,7 +447,7 @@ iife_example2 :: (x : int, y : int)!
 \end{minted}
 
 \subsubsection*{We have to declare out and then change if, which is ugly and bugprone, thats where IIFE comes to help us.}
-\label{sec:org656d2ee}
+\label{sec:orge34d758}
 \begin{minted}{cpp}
 iife_example3 :: (x : int, y : int)!
 {
@@ -439,7 +482,7 @@ name). Which is not what most languages offer (like in C++, lambdas have
 everything differently than regular functions).
 
 \section*{Tuples:}
-\label{sec:orga910013}
+\label{sec:orgd57ab0e}
 
 Tuple syntax are (exclusively) square brackets. But the amount of stuff that
 user can do to a tuple is very limited (by design). So there is no nested
@@ -477,7 +520,7 @@ values must be specified (Compare TupleExp and TupleTarget).
 \end{minted}
 
 \subsubsection*{Tuples can be returned from the function:}
-\label{sec:org1ee0f15}
+\label{sec:orgf79a04d}
 \begin{minted}{cpp}
 tuple_example :: ()! -> [int, int] {
     x : int = 12;
@@ -516,7 +559,7 @@ _ = foobar();
 \end{minted}
 
 \subsubsection*{The interpreter also provides \texttt{print}, \texttt{scan} and \texttt{assert} expressions}
-\label{sec:org35c6791}
+\label{sec:org9b8eadb}
 \begin{itemize}
 \item \texttt{print} - prints the expression to the screen. Must be a builtin
 type. Printing structs is not supported, printing tuples would not even
@@ -534,7 +577,7 @@ any IO error.
 \end{itemize}
 
 \section*{Disclaimer:}
-\label{sec:orgba87c3f}
+\label{sec:orgfa9ce09}
 Most of the ideas here (especially the '!' operator, but also the basics for
 the assigment syntax) were invented (or at least gathered up and presented) by
 Jonathan Blow in his talk 'Ideas for a new programming language for
@@ -544,7 +587,7 @@ what I've came up with): \url{https://www.youtube.com/watch?v=TH9VCN6UkyQ}.
 \clearpage
 
 \section*{Cennik:}
-\label{sec:orgbc61c08}
+\label{sec:orgb075dc0}
 \begin{minted}{cpp}
   Na 15 punktów
 X 01 (trzy typy)
