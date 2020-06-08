@@ -112,7 +112,7 @@ staticChkExpr (EFnCall p (Ident name) invokeL) st = do
   func <- snd <$> getFunc name p st
   staticChkFnCallImpl func invokeL p st
 
-staticChkExpr (EScan _ types) st = VTuple <$>
+staticChkExpr (EScan _ types) st = VTuple . (defaultVarOfType st intT :) <$>
   mapM (\t -> defaultVarOfType st <$> getTypeId t st) types
 
 staticChkExpr (EIife p (FDDefault _ params _ funRet stmts) invokeL) st = do
